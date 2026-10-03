@@ -1,0 +1,146 @@
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { io } from 'socket.io-client';
+import { Box, Flex, Text, Image, Button, Center } from '@chakra-ui/react';
+import ConfigurationModal from './components/ConfigurationModal';
+import FichaCard from './components/FichaCard';
+import { loadFichaConfig, saveFichaConfig } from './utils/fichaConfigStorage';
+
+const socket = io.connect(import.meta.env.VITE_HOST);
+const API_BASE = import.meta.env.VITE_HOST;
+
+function FichaApp() {
+  const [config, setConfig] = useState(loadFichaConfig());
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [deviceOptions, setDeviceOptions] = useState([]);
+  const [currentFicha, setCurrentFicha] = useState(null);
+  const [accessDeniedInfo, setAccessDeniedInfo] = useState(null);
+  const hideTimeoutRef = useRef(null);
+
+  const handleConfigChange = (newConfig) => {
+    setConfig(newConfig);
+    saveFichaConfig(newConfig);
+  };
+
+  // Lista de equipos Face ID configurados, para el selector en Config.
+  useEffect(() => {
+    fetch(`${API_BASE}/api/devices`)
+      .then((res) => res.json())
+      .then((data) => setDeviceOptions(data.devices || []))
+      .catch((error) => console.error('Error obteniendo la lista de equipos:', error));
+  }, []);
+
+  const matchesSelectedDevices = useCallback((deviceName) => {
+    if (!config.selectedFaceIdDevices || config.selectedFaceIdDevices.length === 0) {
+      return true; // sin seleccion = mostrar todos los equipos
+    }
+    return config.selectedFaceIdDevices.includes(deviceName);
+  }, [config.selectedFaceIdDevices]);
+
+  const scheduleAutoHide = useCallback(() => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+    if (config.displayTime !== 'always') {
+      hideTimeoutRef.current = setTimeout(() => {
+        setCurrentFicha(null);
+        setAccessDeniedInfo(null);
+      }, config.displayTime * 1000);
+    }
+  }, [config.displayTime]);
+
+  useEffect(() => {
+    const handleAccessControlEvent = (data) => {
+      const parsedData = JSON.parse(data);
+
+      if (!matchesSelectedDevices(parsedData.deviceName)) return;
+
+      setAccessDeniedInfo(null);
+
+      fetch(`${API_BASE}/api/ficha/${parsedData.id}`)
+        .then((res) => res.json())
+        .then((ficha) => {
+          setCurrentFicha(ficha);
+          scheduleAutoHide();
+        })
+        .catch((error) => console.error('Error obteniendo la ficha:', error));
+    };
+
+    const handleAccessDenied = (data) => {
+      const parsedData = JSON.parse(data);
+      setAccessDeniedInfo(parsedData);
+      scheduleAutoHide();
+    };
+
+    socket.on('accessControlEvent', handleAccessControlEvent);
+    socket.on('accessDenied', handleAccessDenied);
+
+    return () => {
+      socket.off('accessControlEvent', handleAccessControlEvent);
+      socket.off('accessDenied', handleAccessDenied);
+    };
+  }, [matchesSelectedDevices, scheduleAutoHide]);
+
+  useEffect(() => {
+    return () => {
+      if (hideTimeoutRef.current) clearTimeout(hideTimeoutRef.current);
+    };
+  }, []);
+
+  return (
+    <Box minH="100vh" bg="#F4F6F8" fontFamily="poppins" position="relative" p={8}>
+      <ConfigurationModal
+        isOpen={isConfigOpen}
+        onClose={() => setIsConfigOpen(false)}
+        config={config}
+        onConfigChange={handleConfigChange}
+        deviceOptions={deviceOptions}
+      />
+
+      <Button
+        position="absolute"
+        top={4}
+        right={4}
+        zIndex={10}
+        bg="#035187"
+        color="white"
+        _hover={{ bg: '#024066' }}
+        onClick={() => setIsConfigOpen(true)}
+        size="sm"
+        fontFamily="poppins"
+        fontSize="12px"
+      >
+        ⚙️ Config
+      </Button>
+
+      <Flex justifyContent="center" mb={8}>
+        <Image src="/logo.svg" h="50px" />
+      </Flex>
+
+      <Center>
+        <Box w="100%" maxW="480px">
+          {accessDeniedInfo && (
+            <Box bg="#E53E3E" color="white" borderRadius={8} p={3} mb={4} textAlign="center">
+              <Text fontWeight={700} fontFamily="poppins">
+                Acceso NO otorgado (DNI {accessDeniedInfo.dni})
+              </Text>
+              <Text fontSize={13} fontFamily="poppins">
+                Vencido: {(accessDeniedInfo.expiredFields || []).join(', ')}
+              </Text>
+            </Box>
+          )}
+
+          {currentFicha ? (
+            <FichaCard ficha={currentFicha} />
+          ) : (
+            <Box textAlign="center" color="#536d79">
+              <Text fontFamily="poppins">Esperando una identificación...</Text>
+            </Box>
+          )}
+        </Box>
+      </Center>
+    </Box>
+  );
+}
+
+export default FichaApp;

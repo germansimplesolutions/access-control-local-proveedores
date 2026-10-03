@@ -1,0 +1,39 @@
+services:
+  calocal_be:
+    # Reemplazar por la imagen que vos vayas a buildear/pushear para este
+    # proyecto nuevo (todavia no se construyo ninguna).
+    image: tu-usuario/control-acceso-local-v2-be:v1
+    ports:
+      - "3888:3888"
+    volumes:
+      - ./images:/app/images
+      - ./uploads:/app/uploads
+      - ./database:/app/database
+      - ./.env-be:/app/.env-be
+      - ./.env-fe:/app/.env-fe
+    networks:
+      - calocal_network
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+  calocal_fe:
+    image: tu-usuario/control-acceso-local-v2-fe:v1
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./.env-fe:/app/.env
+    networks:
+      - calocal_network
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  calocal_network:
+    driver: bridge

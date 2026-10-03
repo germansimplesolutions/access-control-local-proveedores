@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Configuración - Control de Acceso</title>
+<style>
+  :root {
+    --bg: #101114;
+    --panel: #191a1f;
+    --panel2: #202127;
+    --border: #2c2d34;
+    --text: #e8e8ea;
+    --muted: #9a9aa2;
+    --accent: #6ee7b7;
+    --danger: #f87171;
+    --danger-bg: #2a1416;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+    max-width: 900px;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select {
+    width: 100%;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  input:focus, select:focus { outline: 1px solid var(--accent); }
+  .field { margin-bottom: 10px; }
+  .device-block, .subevent-block {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 14px;
+    background: var(--panel2);
+    position: relative;
+  }
+  .device-block h3, .subevent-block h3 { margin: 0 0 10px; font-size: 13px; color: var(--accent); }
+  .remove-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: var(--danger-bg);
+    color: var(--danger);
+    border: 1px solid #4a2224;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .remove-btn:hover { opacity: .85; }
+  .add-btn, .save-btn {
+    background: var(--accent);
+    color: #0b1f16;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 7px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .add-btn { background: var(--panel2); color: var(--text); border: 1px dashed var(--border); }
+  .add-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .save-btn:hover { opacity: .9; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 20px; max-width: 900px; }
+  #status { font-size: 13px; }
+  #status.ok { color: var(--accent); }
+  #status.err { color: var(--danger); white-space: pre-line; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; }
+  .checkbox-row input { width: auto; }
+</style>
+</head>
+<body>
+
+<h1>Configuración del control de acceso</h1>
+<div class="subtitle">Los cambios se aplican al instante, sin reiniciar el contenedor (salvo el puerto, que sí necesita un reinicio).</div>
+
+<div id="loading">Cargando...</div>
+<div id="unavailable" style="display:none" class="card"></div>
+
+<form id="configForm" style="display:none">
+
+  <div class="card">
+    <h2>General</h2>
+    <div class="grid" id="globalFields"></div>
+  </div>
+
+  <div class="card">
+    <h2>Dispositivos Face ID</h2>
+    <div id="devicesContainer"></div>
+    <button type="button" class="add-btn" id="addDeviceBtn">+ Agregar dispositivo</button>
+  </div>
+
+  <div class="card">
+    <h2>Tipos de evento habilitados</h2>
+    <div id="subEventsContainer"></div>
+    <button type="button" class="add-btn" id="addSubEventBtn">+ Agregar tipo de evento</button>
+  </div>
+
+  <div class="card">
+    <h2>Filtro de personas por lote / categoría</h2>
+    <div class="field" style="max-width:420px">
+      <label>Modo</label>
+      <select id="filterModeSelect" data-global="PERSON_FILTER_MODE">
+        <option value="none">Sin filtro (se carga a todos)</option>
+        <option value="blocklist">Todos menos estos (lista de bloqueo)</option>
+        <option value="allowlist">Nadie salvo estos (lista de permitidos)</option>
+      </select>
+    </div>
+
+    <div id="blocklistFields" style="display:none">
+      <div class="hint" style="margin-bottom:10px">Se descarta a la persona si su lote está en esta lista, <b>o</b> si su categoría está en esta lista (con que una de las dos alcance).</div>
+      <div class="grid">
+        <div class="field">
+          <label>Lotes bloqueados (separados por coma)</label>
+          <input data-global="BLOCKLIST_LOTES" placeholder="105, 108" />
+        </div>
+        <div class="field">
+          <label>Categorías bloqueadas (separadas por coma)</label>
+          <input data-global="BLOCKLIST_CATEGORIAS" placeholder="INQUILINO" />
+        </div>
+      </div>
+    </div>
+
+    <div id="allowlistFields" style="display:none">
+      <div class="hint" style="margin-bottom:10px">Se carga a la persona solo si su lote está en esta lista, <b>o</b> si su categoría está en esta lista (con que una de las dos alcance).</div>
+      <div class="grid">
+        <div class="field">
+          <label>Lotes permitidos (separados por coma)</label>
+          <input data-global="ALLOWLIST_LOTES" placeholder="105, 108" />
+        </div>
+        <div class="field">
+          <label>Categorías permitidas (separadas por coma)</label>
+          <input data-global="ALLOWLIST_CATEGORIAS" placeholder="EMPLEADO" />
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">Este filtro aplica tanto a las altas como a las bajas: si un lote o categoría no le corresponde a este equipo, tampoco se toca al borrarlo (por ejemplo, si la persona tiene acceso habilitado en otro equipo por otro lote, no se le va a tocar ese acceso desde acá).</div>
+  </div>
+
+  <div class="card">
+    <h2>Fotos de las personas</h2>
+    <div class="field" style="max-width:420px">
+      <label>Origen de la foto mostrada</label>
+      <select data-global="PHOTO_SOURCE">
+        <option value="device">Equipo Face ID (la pide al equipo en cada evento)</option>
+        <option value="local">Carpeta local images/ (la que ya se guardó al sincronizar)</option>
+      </select>
+    </div>
+    <div class="hint">"Equipo Face ID" le pide la foto al dispositivo en cada evento de entrada/salida. "Carpeta local" usa directamente la foto que ya se descargó y guardó en <code>images/</code> al sincronizar a la persona, sin volver a pedírsela al equipo.</div>
+  </div>
+
+  <div class="toolbar">
+    <button type="submit" class="save-btn">Guardar</button>
+    <button type="button" id="logoutBtn" class="add-btn">Cerrar sesión</button>
+    <span id="status"></span>
+  </div>
+
+</form>
+
+<div id="feUnavailable" style="display:none" class="card"></div>
+
+<form id="feConfigForm" style="display:none">
+  <div class="card">
+    <h2>Frontend (pantalla del puesto)</h2>
+    <div class="field" style="max-width:420px">
+      <label>URL del backend (VITE_HOST)</label>
+      <input type="text" id="viteHostInput" placeholder="http://192.168.1.50:3888" />
+      <div class="hint">Es la dirección con la que la pantalla del puesto se conecta al backend. Usá la IP de la PC en la red del cliente (no "localhost") si la pantalla se abre desde otro equipo o cambia la IP.</div>
+      <div class="hint">Al guardar, el frontend se reinicia solo (unos segundos) y toma el cambio - no hace falta bajar el docker.</div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button type="submit" class="save-btn">Guardar frontend</button>
+    <span id="feStatus"></span>
+  </div>
+</form>
+
+<script>
+const GLOBAL_FIELD_DEFS = [
+  { key: "GUARD_POST_NAME", label: "Nombre del puesto", type: "text" },
+  { key: "ID_BARRIO", label: "ID de barrio", type: "text" },
+  { key: "ID_BARRIOS_SYNC", label: "IDs de barrios a sincronizar", type: "text" },
+  { key: "URL_API", label: "URL del API central", type: "text" },
+  { key: "API_USERNAME", label: "Usuario API", type: "text" },
+  { key: "API_PASSWORD", label: "Contraseña API", type: "password" },
+  { key: "PORT", label: "Puerto (necesita reinicio)", type: "text" },
+  { key: "TIME_SYNC", label: "Intervalo de sincronización (ms)", type: "text" },
+  { key: "TEST_MODE", label: "Modo test (0/1)", type: "text" },
+  { key: "ADMIN_USER", label: "Usuario de este panel", type: "text" },
+  { key: "ADMIN_PASSWORD", label: "Contraseña de este panel", type: "password" }
+];
+
+let state = null;
+
+async function load() {
+  const res = await fetch("/admin/api/config");
+
+  if (res.status === 401) {
+    window.location.href = "/admin/login";
+    return;
+  }
+
+  const data = await res.json();
+
+  if (!data.available) {
+    document.getElementById("loading").style.display = "none";
+    const el = document.getElementById("unavailable");
+    el.style.display = "block";
+    el.innerHTML = "<h2>No disponible</h2><p>" + data.reason + "</p>";
+    return;
+  }
+
+  state = data.config;
+  render();
+  document.getElementById("loading").style.display = "none";
+  document.getElementById("configForm").style.display = "block";
+
+  await loadFeConfig();
+}
+
+async function loadFeConfig() {
+  const res = await fetch("/admin/api/fe-config");
+
+  if (res.status === 401) {
+    window.location.href = "/admin/login";
+    return;
+  }
+
+  const data = await res.json();
+
+  if (!data.available) {
+    const el = document.getElementById("feUnavailable");
+    el.style.display = "block";
+    el.innerHTML = "<h2>Frontend no disponible</h2><p>" + data.reason + "</p>";
+    return;
+  }
+
+  document.getElementById("viteHostInput").value = data.config.VITE_HOST || "";
+  document.getElementById("feConfigForm").style.display = "block";
+}
+
+function render() {
+  renderGlobal();
+  renderDevices();
+  renderSubEvents();
+  renderPersonFilter();
+  renderPhotoSource();
+}
+
+function renderGlobal() {
+  const container = document.getElementById("globalFields");
+  container.innerHTML = "";
+  GLOBAL_FIELD_DEFS.forEach(def => {
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    wrap.innerHTML = `
+      <label>${def.label}</label>
+      <input type="${def.type}" data-global="${def.key}" value="${escapeAttr(state.global[def.key] || "")}" />
+    `;
+    container.appendChild(wrap);
+  });
+}
+
+function renderDevices() {
+  const container = document.getElementById("devicesContainer");
+  container.innerHTML = "";
+  state.devices.forEach((d, idx) => {
+    const block = document.createElement("div");
+    block.className = "device-block";
+    block.innerHTML = `
+      <button type="button" class="remove-btn" data-remove-device="${idx}">Quitar</button>
+      <h3>Dispositivo ${idx + 1}</h3>
+      <div class="grid">
+        <div class="field">
+          <label>Nombre</label>
+          <input data-device="${idx}" data-field="devicename" value="${escapeAttr(d.devicename)}" />
+        </div>
+        <div class="field">
+          <label>Tipo</label>
+          <select data-device="${idx}" data-field="type">
+            <option value="ENTRY" ${d.type === "ENTRY" ? "selected" : ""}>ENTRY (entrada)</option>
+            <option value="EXIT" ${d.type === "EXIT" ? "selected" : ""}>EXIT (salida)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>IP</label>
+          <input data-device="${idx}" data-field="ip" value="${escapeAttr(d.ip)}" />
+        </div>
+        <div class="field">
+          <label>Usuario</label>
+          <input data-device="${idx}" data-field="user" value="${escapeAttr(d.user)}" />
+        </div>
+        <div class="field">
+          <label>Contraseña</label>
+          <input type="password" data-device="${idx}" data-field="pass" value="${escapeAttr(d.pass)}" />
+        </div>
+        <div class="field checkbox-row" style="align-items:flex-end;padding-bottom:8px">
+          <input type="checkbox" data-device="${idx}" data-field="use_alpr" data-checkbox="1" ${d.use_alpr == "1" ? "checked" : ""} />
+          <label style="margin:0">Usa lectura de patente (ALPR)</label>
+        </div>
+        <div class="field">
+          <label>URL RTSP (solo si usa ALPR)</label>
+          <input data-device="${idx}" data-field="rtsp_url" value="${escapeAttr(d.rtsp_url)}" />
+        </div>
+        <div class="field">
+          <label>Tiempo máx. desde el evento para leer patente (seg)</label>
+          <input data-device="${idx}" data-field="time_elapsed_since_auth" value="${escapeAttr(d.time_elapsed_since_auth)}" />
+        </div>
+        <div class="field">
+          <label>Espera antes de leer patente (ms)</label>
+          <input data-device="${idx}" data-field="waiting_time" value="${escapeAttr(d.waiting_time)}" />
+        </div>
+      </div>
+    `;
+    container.appendChild(block);
+  });
+}
+
+function renderSubEvents() {
+  const container = document.getElementById("subEventsContainer");
+  container.innerHTML = "";
+  state.subEventTypes.forEach((s, idx) => {
+    const block = document.createElement("div");
+    block.className = "subevent-block";
+    block.innerHTML = `
+      <button type="button" class="remove-btn" data-remove-subevent="${idx}">Quitar</button>
+      <h3>Tipo de evento ${idx + 1}</h3>
+      <div class="grid">
+        <div class="field">
+          <label>subEventType (código Hikvision)</label>
+          <input data-subevent="${idx}" data-field="subEventType" value="${escapeAttr(s.subEventType)}" />
+        </div>
+        <div class="field">
+          <label>cardType (código Hikvision)</label>
+          <input data-subevent="${idx}" data-field="cardType" value="${escapeAttr(s.cardType)}" />
+        </div>
+        <div class="field checkbox-row" style="align-items:flex-end;padding-bottom:8px">
+          <input type="checkbox" data-subevent="${idx}" data-field="isPanic" data-checkbox="1" ${s.isPanic == "1" ? "checked" : ""} />
+          <label style="margin:0">Es evento de pánico</label>
+        </div>
+      </div>
+    `;
+    container.appendChild(block);
+  });
+}
+
+function escapeAttr(value) {
+  return String(value).replace(/"/g, "&quot;");
+}
+
+function renderPersonFilter() {
+  const mode = state.global.PERSON_FILTER_MODE || "none";
+
+  document.getElementById("filterModeSelect").value = mode;
+  document.querySelector('[data-global="BLOCKLIST_LOTES"]').value = state.global.BLOCKLIST_LOTES || "";
+  document.querySelector('[data-global="BLOCKLIST_CATEGORIAS"]').value = state.global.BLOCKLIST_CATEGORIAS || "";
+  document.querySelector('[data-global="ALLOWLIST_LOTES"]').value = state.global.ALLOWLIST_LOTES || "";
+  document.querySelector('[data-global="ALLOWLIST_CATEGORIAS"]').value = state.global.ALLOWLIST_CATEGORIAS || "";
+
+  updatePersonFilterVisibility(mode);
+}
+
+function updatePersonFilterVisibility(mode) {
+  document.getElementById("blocklistFields").style.display = mode === "blocklist" ? "block" : "none";
+  document.getElementById("allowlistFields").style.display = mode === "allowlist" ? "block" : "none";
+}
+
+function renderPhotoSource() {
+  document.querySelector('[data-global="PHOTO_SOURCE"]').value = state.global.PHOTO_SOURCE || "local";
+}
+
+document.getElementById("filterModeSelect").addEventListener("change", (e) => {
+  updatePersonFilterVisibility(e.target.value);
+});
+
+function readFormIntoState() {
+  document.querySelectorAll("[data-global]").forEach(el => {
+    state.global[el.dataset.global] = el.value;
+  });
+  document.querySelectorAll("[data-device]").forEach(el => {
+    const idx = Number(el.dataset.device);
+    const field = el.dataset.field;
+    state.devices[idx][field] = el.dataset.checkbox ? (el.checked ? "1" : "0") : el.value;
+  });
+  document.querySelectorAll("[data-subevent]").forEach(el => {
+    const idx = Number(el.dataset.subevent);
+    const field = el.dataset.field;
+    state.subEventTypes[idx][field] = el.dataset.checkbox ? (el.checked ? "1" : "0") : el.value;
+  });
+}
+
+document.getElementById("addDeviceBtn").addEventListener("click", () => {
+  readFormIntoState();
+  state.devices.push({ type: "ENTRY", devicename: "", user: "", pass: "", ip: "", use_alpr: "0", rtsp_url: "", time_elapsed_since_auth: "", waiting_time: "" });
+  render();
+});
+
+document.getElementById("addSubEventBtn").addEventListener("click", () => {
+  readFormIntoState();
+  state.subEventTypes.push({ subEventType: "", cardType: "", isPanic: "0" });
+  render();
+});
+
+document.getElementById("devicesContainer").addEventListener("click", (e) => {
+  if (e.target.dataset.removeDevice !== undefined) {
+    readFormIntoState();
+    state.devices.splice(Number(e.target.dataset.removeDevice), 1);
+    render();
+  }
+});
+
+document.getElementById("subEventsContainer").addEventListener("click", (e) => {
+  if (e.target.dataset.removeSubevent !== undefined) {
+    readFormIntoState();
+    state.subEventTypes.splice(Number(e.target.dataset.removeSubevent), 1);
+    render();
+  }
+});
+
+document.getElementById("configForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  readFormIntoState();
+
+  const statusEl = document.getElementById("status");
+  statusEl.className = "";
+  statusEl.textContent = "Guardando...";
+
+  const res = await fetch("/admin/api/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(state)
+  });
+
+  if (res.status === 401) {
+    window.location.href = "/admin/login";
+    return;
+  }
+
+  const data = await res.json();
+
+  if (data.ok) {
+    statusEl.className = "ok";
+    statusEl.textContent = data.needsRestartForPort
+      ? "Guardado. El puerto cambió: para que aplique hace falta reiniciar el contenedor (docker compose up -d)."
+      : "Guardado y aplicado.";
+  } else {
+    statusEl.className = "err";
+    statusEl.textContent = "No se pudo guardar:\n" + (data.errors || []).join("\n");
+  }
+});
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await fetch("/admin/logout", { method: "POST" });
+  window.location.href = "/admin/login";
+});
+
+document.getElementById("feConfigForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const statusEl = document.getElementById("feStatus");
+  statusEl.className = "";
+  statusEl.textContent = "Guardando...";
+
+  const res = await fetch("/admin/api/fe-config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ VITE_HOST: document.getElementById("viteHostInput").value })
+  });
+
+  if (res.status === 401) {
+    window.location.href = "/admin/login";
+    return;
+  }
+
+  const data = await res.json();
+
+  if (data.ok) {
+    statusEl.className = "ok";
+    statusEl.textContent = "Guardado. La pantalla del puesto se va a reiniciar sola en unos segundos.";
+  } else {
+    statusEl.className = "err";
+    statusEl.textContent = "No se pudo guardar:\n" + (data.errors || []).join("\n");
+  }
+});
+
+load();
+</script>
+
+</body>
+</html>

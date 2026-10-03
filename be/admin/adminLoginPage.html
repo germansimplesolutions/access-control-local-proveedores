@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ingresar - Configuración</title>
+<style>
+  :root {
+    --bg: #101114;
+    --panel: #191a1f;
+    --panel2: #202127;
+    --border: #2c2d34;
+    --text: #e8e8ea;
+    --muted: #9a9aa2;
+    --accent: #6ee7b7;
+    --danger: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  form {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 28px 26px;
+    width: 300px;
+  }
+  h1 { font-size: 16px; margin: 0 0 18px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input {
+    width: 100%;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  input:focus { outline: 1px solid var(--accent); }
+  button {
+    width: 100%;
+    background: var(--accent);
+    color: #0b1f16;
+    border: none;
+    padding: 10px;
+    border-radius: 7px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #error { color: var(--danger); font-size: 12px; margin-top: 10px; min-height: 14px; }
+</style>
+</head>
+<body>
+<form id="loginForm">
+  <h1>Configuración del control de acceso</h1>
+  <label>Usuario</label>
+  <input type="text" id="user" autocomplete="username" autofocus />
+  <label>Contraseña</label>
+  <input type="password" id="pass" autocomplete="current-password" />
+  <button type="submit">Ingresar</button>
+  <div id="error"></div>
+</form>
+<script>
+document.getElementById("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const user = document.getElementById("user").value;
+  const pass = document.getElementById("pass").value;
+  const errorEl = document.getElementById("error");
+  errorEl.textContent = "";
+
+  const res = await fetch("/admin/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user, pass })
+  });
+  const data = await res.json();
+
+  if (data.ok) {
+    window.location.href = "/admin";
+  } else {
+    errorEl.textContent = data.error || "No se pudo ingresar.";
+  }
+});
+</script>
+</body>
+</html>
