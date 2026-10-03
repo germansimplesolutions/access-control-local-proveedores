@@ -136,19 +136,14 @@ const getUser = async (employeeNo, plate, deviceName, eventType, io, eventDateTi
     // request reaches the API instead of the real moment the Face ID device
     // fired the event.
     //
-    // PHOTO_SOURCE (configurable from the admin panel) decides where the
-    // photo shown on screen comes from:
-    // - "device" (default): fetched from the Face ID itself on every event.
-    // - "local": read straight from ./images, where sync.js already keeps a
-    //   copy of every synced person's photo (downloaded from the central
-    //   API) - no extra round-trip to the device for the picture.
-    // v2: por defecto "local". En v25 el default era "device" (buscar la
-    // foto en el propio equipo), pero en v2 nunca se enrola foto/cara en el
-    // equipo (alta solo con DNI/nombre/apellido) - dejar "device" como
-    // default haria que esto nunca encuentre nada y, en esta base (sin el
-    // fix de "siempre mandar log" que se dejo afuera a proposito), el
-    // evento ni se loguearia. Si en el futuro se vuelve a enrolar foto,
-    // hay que revisar esto de nuevo.
+    // PHOTO_SOURCE (configurable from el panel admin) decide de donde sale
+    // la foto que se muestra en pantalla:
+    // - "device": se busca en el propio equipo Face ID en cada evento.
+    // - "local" (default): se lee directo de ./images, donde sync.js ya
+    //   guarda una copia de la foto de cada persona sincronizada (bajada de
+    //   la API central) - evita un viaje extra al equipo solo para mostrar
+    //   la foto. La CARA enrolada en el equipo (para que te reconozca) es un
+    //   tema aparte, ver addNewPicture en callDigest.
     const photoSource = (process.env.PHOTO_SOURCE || "local").toLowerCase();
 
     if (photoSource === "local") {
@@ -454,12 +449,19 @@ const callDigest = async (device, userInfo, onlyDelete=false) => {
 
     const document = userInfo.document;
 
-    // v2: no se enrola foto/cara en el equipo (alta solo con DNI, nombre y
-    // apellido), asi que no hace falta limpiar ninguna foto previa antes de
-    // dar de baja al usuario - se elimina directamente el paso
-    // deletePicture, que en access-control-local (v25) era justo el que
-    // podia fallar y frenar todo el alta/baja cuando el equipo estaba
-    // realmente offline.
+    // Es "Face ID": la cara SI se enrola en el equipo (igual que en v25),
+    // para que te reconozca de verdad. Lo que v2 cambia es que el alta
+    // ademas guarda la ficha completa en la base local y, si hay id_hash,
+    // intenta cargar un QR (ver addQrCode). Mantiene el mismo
+    // comportamiento base de v25 (sin los 2 fixes de offline/log que se
+    // dejaron afuera a proposito): si el equipo esta realmente offline,
+    // deletePicture tira timeout y se corta todo el alta/baja.
+    const result1 = await deletePicture(digestRequest, device, document);
+
+    if (result1 === undefined) { // Timeout, el equipo esta offline
+      throw new Error(`Device ${device.name} is off-line`);
+    }
+
     const result2 = await deleteUser(digestRequest,device,document);
 
     if (!onlyDelete) {
@@ -467,9 +469,13 @@ const callDigest = async (device, userInfo, onlyDelete=false) => {
 
       if (result3) {
 
-        await addCard(digestRequest, device, userInfo);
+        const result4 = await addCard(digestRequest, device, userInfo);
 
-        // Si la persona tiene id_hash, se intenta cargar como QR
+        if (result4) {
+          await addNewPicture(digestRequest, device, document, userInfo.image_url);
+        }
+
+        // Si la persona tiene id_hash, se intenta cargar ADEMAS como QR
         // (experimental - ver aviso en addQrCode). No corta el alta si
         // falla.
         if (userInfo.id_hash) {
@@ -583,19 +589,25 @@ const addNewUser = async (digestRequest, device, userInfo) => {
             "gender": "male",
             "localUIRight":false,
             "maxOpenDoorTime":0,
-            // v2: doorRight en "0" y sin RightPlan - la idea es que el equipo
-            // IDENTIFIQUE a la persona (y mande el evento) pero NO abra la
-            // puerta por si solo; la apertura la manda el backend via
-            // RemoteControl/door, solo si los vencimientos documentales
-            // estan vigentes (ver validateAndOpenDoor). OJO: no pude
-            // confirmar en la documentacion que el equipo siga generando el
-            // evento de identificacion con doorRight deshabilitado - hay que
-            // probarlo contra un equipo real. Si el equipo NO llega a
-            // generar el evento asi, hay que volver a "1" y resolver el
-            // bloqueo de otra forma (por ejemplo, desconectando el rele de
-            // la cerradura del equipo y que la abra solo el backend por otro
-            // medio).
-            "doorRight":"0",
+            // doorRight tiene que ser un numero de puerta real (probado
+            // contra el equipo: "0" lo rechaza con error "exceeding the
+            // parameter range limit... doorRight" - no es un on/off).
+            // Para que el equipo identifique a la persona pero NO abra la
+            // puerta por si solo, se le asigna la puerta real (doorRight:"1")
+            // pero con una plantilla horaria (RightPlan/planTemplateNo) SIN
+            // ningun horario cargado - la plantilla "1" ya se usa como
+            // acceso 24hs, asi que se usa la "2" en su lugar (sin configurar
+            // en el equipo = nunca deja pasar por horario). El equipo igual
+            // tiene que reconocer la cara primero para evaluar la plantilla,
+            // asi que el evento de identificacion deberia seguir llegando.
+            // La apertura real la manda el backend via RemoteControl/door,
+            // solo si los vencimientos documentales estan vigentes (ver
+            // validateAndOpenDoor). CONFIRMAR EN CAMPO: que el equipo
+            // efectivamente reconozca y mande el evento sin abrir. Si no
+            // funciona, revisar que la plantilla "2" no tenga ya un horario
+            // cargado de antes (probar con otro numero de plantilla libre).
+            "doorRight":"1",
+            "RightPlan":[{"doorNo":1,"planTemplateNo":"2"}],
             "userVerifyMode":"",
             "PersonInfoExtends": [
               {
@@ -678,9 +690,80 @@ const addCard = async (digestRequest, device, userInfo) => {
   }
 };
 
-// Nota v2: deletePicture y addNewPicture (enrolar foto/cara en el equipo)
-// se sacaron de este archivo - en v2 el alta es solo DNI/nombre/apellido,
-// sin foto, asi que no hacen falta. Si en algun momento se quiere agregar
-// enrolamiento facial de vuelta, estan en el historial de access-control-local (v25).
+// Borra la cara anterior del equipo antes de dar de baja al usuario (igual
+// que en v25). Si el equipo esta offline, esta llamada es la que tira
+// timeout y corta todo el alta/baja (ver callDigest).
+const deletePicture = async (digestRequest, device, document) => {
+    try {
+        const path = "/ISAPI/Intelligent/FDLib/FDSearch/Delete?format=json&FDID=1&faceLibType=blackFD";
+
+        const body = {
+                        "FPID":[
+                            {"value": document}
+                        ]
+                    };
+        var b = JSON.stringify(body);
+
+        const options = {
+            host: "http://" + device.ip,
+            path: path,
+            port: 80,
+            method: "PUT",
+            json: false,
+            body: b,
+            headers: {
+            "Content-Type": "application/json",
+            },
+        };
+
+        const result = await digestRequest.requestAsync(options);
+
+        console.log(`User ${document}: image deleted successfully.`);
+
+		return result.body;
+
+    } catch (error) {
+        console.log("error deletePicture", error);
+    }
+};
+
+// Enrola la cara de la persona en el equipo, a partir de la URL de la foto
+// (el equipo mismo baja la imagen de esa URL - tiene que poder llegar a
+// internet para esto, igual que en v25).
+const addNewPicture = async (digestRequest, device, document, url_file) => {
+    try {
+        const path = "/ISAPI/Intelligent/FDLib/FaceDataRecord?format=json";
+
+        const body = {
+            faceLibType: "blackFD",
+            FDID: "1",
+            FPID: document,
+            faceURL: url_file,
+        };
+
+        const json_body = JSON.stringify(body);
+
+        const options = {
+            host: "http://" + device.ip,
+            path: path,
+            port: 80,
+            method: "POST",
+            json: false,
+            body: json_body,
+            headers: {
+            "Content-Type": "application/json",
+            },
+        };
+
+        const result = await digestRequest.requestAsync(options);
+
+        console.log(`User ${document}: image added successfully.`);
+
+		return result.body;
+
+    } catch (error) {
+        console.log("error addNewPicture", error.body);
+    }
+};
 
 export { getUser, processUser };
