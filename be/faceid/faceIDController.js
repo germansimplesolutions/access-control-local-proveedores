@@ -121,13 +121,12 @@ const getUser = async (employeeNo, plate, deviceName, eventType, io, eventDateTi
       deviceName,
     );
 
-    // v2: el equipo identifico a la persona, pero la apertura de la puerta
-    // ya no la decide el equipo solo (doorRight queda deshabilitado al dar
-    // de alta, ver addNewUser) - la decide el backend, validando que los
-    // vencimientos documentales de la persona esten vigentes recien antes
-    // de mandar la orden de apertura. No bloquea el resto del flujo (foto,
-    // log de entrada/salida) si falla.
-    validateAndOpenDoor(dni, deviceName, io);
+    // v2: la apertura de la puerta YA NO se decide aca ni con
+    // RemoteControl/door - se decide respondiendo al remoteCheck del
+    // propio equipo (Remote Verification, ver respondToRemoteCheck mas
+    // abajo y su uso en events.js), validando ahi mismo los vencimientos
+    // documentales. Esto (identificar a la persona para mostrarla en
+    // pantalla/mandar el log) sigue de largo sin depender de esa decision.
 
     //return getPicture(dni, objAccessControlEvent, io);
     // eventDateTime must be forwarded here: both getPictureFromFaceID and
@@ -160,69 +159,95 @@ const getUser = async (employeeNo, plate, deviceName, eventType, io, eventDateTi
 // --- v2: validar vencimientos documentales antes de abrir la puerta ---
 // (la logica de que cuenta como "vencido" vive en ../database/expirations.js,
 // compartida con la API que consume el front de la ficha)
-
-// Manda la orden de apertura remota de la puerta del equipo (ISAPI
-// RemoteControl/door). doorNo queda fijo en 1 porque los equipos Face ID de
-// una sola puerta de esta instalacion no tienen mas de un rele - si en
-// algun momento hay un equipo con varias puertas, esto habria que
-// parametrizarlo por dispositivo.
-const openDoor = async (deviceName) => {
+//
+// La apertura real la decide el equipo mismo via su funcion "Remote
+// Verification": identifica a la persona, nos manda el evento con
+// remoteCheck:true y espera que le contestemos (dentro de un timeout
+// configurado en el equipo) si abre o no. sendRemoteCheck es esa
+// respuesta. Reemplaza al viejo mecanismo de forzar la apertura con
+// RemoteControl/door - tener los dos mecanismos activos a la vez hace que
+// compitan y den resultados inconsistentes (probado en campo: con
+// RemoteControl/door denegando por vencimientos Y remoteCheck contestando
+// "success" en paralelo, el equipo terminaba abriendo igual).
+//
+// Requiere en el equipo (configuracion manual, pantalla propia del
+// equipo, Access Control > Parameter Settings > Terminal Parameters):
+// Remote Verification = ON, Verifying Person Type Remotely = Normal User
+// (+ Visitor/Unadded Person), Result Return Mode = Asynchronous, y que el
+// RightPlan de la persona tenga una plantilla horaria valida (ver
+// addNewUser - antes se usaba una plantilla vacia a proposito para
+// bloquear localmente, ya no hace falta).
+const sendRemoteCheck = async (deviceName, serialNo, checkResult, info) => {
   const device = devices[deviceName];
 
   if (!device) {
-    console.log(`No se pudo abrir la puerta: no existe el dispositivo ${deviceName} en la configuracion.`);
-    return false;
+    console.log(`No se pudo responder remoteCheck: no existe el dispositivo ${deviceName} en la configuracion.`);
+    return;
   }
 
-  const digestRequest = requestDigest(device.username, device.password);
+  try {
+    const digestRequest = requestDigest(device.username, device.password);
 
-  const path = "/ISAPI/AccessControl/RemoteControl/door/1?format=json";
-  const body = { RemoteControlDoor: { cmd: "open" } };
+    const path = "/ISAPI/AccessControl/remoteCheck?format=json";
+    const body = {
+      RemoteCheck: {
+        serialNo,
+        checkResult, // "success" o "failed"
+        info: (info || "").slice(0, 64), // el equipo acepta hasta 64 caracteres
+      },
+    };
 
-  const options = {
-    host: "http://" + device.ip,
-    path,
-    port: 80,
-    method: "PUT",
-    json: false,
-    body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json" },
-  };
+    const options = {
+      host: "http://" + device.ip,
+      path,
+      port: 80,
+      method: "PUT",
+      json: false,
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    };
 
-  const result = await digestRequest.requestAsync(options);
+    const result = await digestRequest.requestAsync(options);
 
-  console.log(`Orden de apertura enviada a ${deviceName}.`);
+    console.log(`remoteCheck serialNo=${serialNo} (${deviceName}) -> ${checkResult}.`);
 
-  return result.body;
+    return result.body;
+
+  } catch (error) {
+    console.log("error sendRemoteCheck", error);
+  }
 };
 
-// Valida contra la base de datos local si la persona tiene todo vigente y,
-// solo en ese caso, manda la orden de apertura. Si no hay datos locales de
-// esa persona (por ejemplo, una tarjeta de guardia/personal sin ficha de
-// residente), por ahora NO se abre la puerta automaticamente - queda
-// pendiente de definir si ese tipo de credenciales necesita un bypass
-// propio (ver aviso en el chat).
-const validateAndOpenDoor = async (dni, deviceName, io) => {
+// Valida contra la base de datos local si la persona tiene todo vigente y
+// contesta el remoteCheck en consecuencia. Si no hay datos locales de esa
+// persona (por ejemplo, una tarjeta de guardia/personal sin ficha de
+// residente), por ahora se contesta "failed" (comportamiento conservador
+// heredado del mecanismo anterior) - queda pendiente de definir si ese
+// tipo de credenciales necesita un bypass propio.
+const respondToRemoteCheck = async (dni, deviceName, serialNo, io) => {
   try {
     const person = getPersonByDocument(dni);
 
     if (!person) {
-      console.log(`Sin datos locales para ${dni}: no se valida ningun vencimiento y no se abre la puerta automaticamente desde el backend.`);
+      console.log(`Sin datos locales para ${dni}: no se valida ningun vencimiento, se responde "failed" (comportamiento conservador, ver aviso pendiente).`);
+      await sendRemoteCheck(deviceName, serialNo, "failed", "Sin ficha local");
       return;
     }
 
     const expiredFields = getExpiredFields(person);
 
     if (expiredFields.length > 0) {
-      console.log(`Acceso NO otorgado a ${dni}: vencido/s -> ${expiredFields.join(", ")}.`);
+      const info = expiredFields.join(", ");
+      console.log(`Acceso NO otorgado a ${dni}: vencido/s -> ${info}.`);
       io.sockets.emit("accessDenied", JSON.stringify({ dni, expiredFields }));
+      await sendRemoteCheck(deviceName, serialNo, "failed", info);
       return;
     }
 
-    await openDoor(deviceName);
+    await sendRemoteCheck(deviceName, serialNo, "success", "OK");
 
   } catch (error) {
-    console.log("error validateAndOpenDoor", error);
+    console.log("error respondToRemoteCheck", error);
   }
 };
 
@@ -592,22 +617,15 @@ const addNewUser = async (digestRequest, device, userInfo) => {
             // doorRight tiene que ser un numero de puerta real (probado
             // contra el equipo: "0" lo rechaza con error "exceeding the
             // parameter range limit... doorRight" - no es un on/off).
-            // Para que el equipo identifique a la persona pero NO abra la
-            // puerta por si solo, se le asigna la puerta real (doorRight:"1")
-            // pero con una plantilla horaria (RightPlan/planTemplateNo) SIN
-            // ningun horario cargado - la plantilla "1" ya se usa como
-            // acceso 24hs, asi que se usa la "2" en su lugar (sin configurar
-            // en el equipo = nunca deja pasar por horario). El equipo igual
-            // tiene que reconocer la cara primero para evaluar la plantilla,
-            // asi que el evento de identificacion deberia seguir llegando.
-            // La apertura real la manda el backend via RemoteControl/door,
-            // solo si los vencimientos documentales estan vigentes (ver
-            // validateAndOpenDoor). CONFIRMAR EN CAMPO: que el equipo
-            // efectivamente reconozca y mande el evento sin abrir. Si no
-            // funciona, revisar que la plantilla "2" no tenga ya un horario
-            // cargado de antes (probar con otro numero de plantilla libre).
+            // La plantilla horaria tiene que ser una VALIDA (24hs) - la
+            // apertura ya no se bloquea con una plantilla vacia, se decide
+            // contestando el remoteCheck del equipo (ver sendRemoteCheck/
+            // respondToRemoteCheck). Si esta plantilla queda sin horario
+            // cargado, el equipo deniega por horario ANTES de llegar a
+            // preguntarnos nada, pisando lo que contestemos en remoteCheck
+            // (probado en campo).
             "doorRight":"1",
-            "RightPlan":[{"doorNo":1,"planTemplateNo":"2"}],
+            "RightPlan":[{"doorNo":1,"planTemplateNo":"1"}],
             "userVerifyMode":"",
             "PersonInfoExtends": [
               {
@@ -766,4 +784,4 @@ const addNewPicture = async (digestRequest, device, document, url_file) => {
     }
 };
 
-export { getUser, processUser };
+export { getUser, processUser, respondToRemoteCheck };

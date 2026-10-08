@@ -1,7 +1,7 @@
 import { devices, subEventTypes} from "../loadEnv.js";
 import { Router } from "express";
 //import { IncomingForm } from "formidable";
-import { getUser, processUser } from "../faceid/faceIDController.js";
+import { getUser, processUser, respondToRemoteCheck } from "../faceid/faceIDController.js";
 import { downloadImage, sleep } from "../utils/utils.js";
 import fs from "fs";
 import multer  from "multer";
@@ -134,6 +134,22 @@ const routes = (io) => {
 
         dni = 0;
         plate = "";
+
+        // v2: Remote Verification del equipo (ver aviso completo en
+        // sendRemoteCheck/respondToRemoteCheck, faceIDController.js). Esto
+        // corre SIEMPRE que el equipo marque remoteCheck:true,
+        // independientemente del filtro de subEventType/cardType de mas
+        // abajo (ese filtro es solo para decidir que se muestra/loguea,
+        // no para decidir si se abre la puerta). No se espera (await) aca
+        // para no demorar la respuesta "ok" del webhook - el equipo tiene
+        // su propio timeout corriendo en paralelo mientras tanto.
+        if (obj.AccessControllerEvent !== undefined && obj.AccessControllerEvent.remoteCheck === true) {
+          const rcDni = obj.AccessControllerEvent.employeeNoString;
+          const rcDeviceName = obj.AccessControllerEvent.deviceName;
+          const rcSerialNo = obj.AccessControllerEvent.serialNo;
+
+          respondToRemoteCheck(rcDni, rcDeviceName, rcSerialNo, io);
+        }
 
         res.end("ok");
 
