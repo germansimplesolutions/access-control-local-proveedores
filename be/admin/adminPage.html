@@ -162,6 +162,19 @@
   </div>
 
   <div class="card">
+    <h2>Sincronización de personas</h2>
+    <div id="syncTypesContainer"></div>
+    <div class="field" style="max-width:420px; margin-top:4px">
+      <label>Fotos al sincronizar</label>
+      <select data-global="SYNC_WITH_PICTURE">
+        <option value="1">Solo personas con foto</option>
+        <option value="0">También personas sin foto (se cargan solo con tarjeta/DNI)</option>
+      </select>
+    </div>
+    <div class="hint">Define qué tipos y categorías de personas se traen del servidor central en cada sincronización ("Todos" trae cualquier categoría de ese tipo; "Categorías específicas" permite poner a mano las categorías separadas por coma), y si se incluye a las que todavía no tienen foto cargada.</div>
+  </div>
+
+  <div class="card">
     <h2>Fotos de las personas</h2>
     <div class="field" style="max-width:420px">
       <label>Origen de la foto mostrada</label>
@@ -213,6 +226,17 @@ const GLOBAL_FIELD_DEFS = [
   { key: "TEST_MODE", label: "Modo test (0/1)", type: "text" },
   { key: "ADMIN_USER", label: "Usuario de este panel", type: "text" },
   { key: "ADMIN_PASSWORD", label: "Contraseña de este panel", type: "password" }
+];
+
+// Valores por defecto que se muestran mientras nada este guardado todavia
+// en el .env-be - elegidos para que coincidan exactamente con lo que el
+// backend ya hacia antes de que existiera esta configuracion
+// ("resident-ALL,permanent-SOCIO"), de modo que guardar sin tocar nada no
+// cambie el comportamiento actual.
+const SYNC_TYPE_DEFS = [
+  { key: "RESIDENT", label: "Resident", defaultMode: "all", defaultCategories: "" },
+  { key: "PERMANENT", label: "Permanent", defaultMode: "custom", defaultCategories: "SOCIO" },
+  { key: "TEMPORAL", label: "Temporal", defaultMode: "none", defaultCategories: "" }
 ];
 
 let state = null;
@@ -270,6 +294,8 @@ function render() {
   renderSubEvents();
   renderPersonFilter();
   renderPhotoSource();
+  renderSyncTypes();
+  renderSyncWithPicture();
 }
 
 function renderGlobal() {
@@ -392,6 +418,52 @@ function updatePersonFilterVisibility(mode) {
 
 function renderPhotoSource() {
   document.querySelector('[data-global="PHOTO_SOURCE"]').value = state.global.PHOTO_SOURCE || "local";
+}
+
+function renderSyncTypes() {
+  const container = document.getElementById("syncTypesContainer");
+  container.innerHTML = "";
+
+  SYNC_TYPE_DEFS.forEach(def => {
+    const modeKey = "SYNC_TYPE_" + def.key + "_MODE";
+    const catsKey = "SYNC_TYPE_" + def.key + "_CATEGORIES";
+    const mode = state.global[modeKey] || def.defaultMode;
+    const cats = state.global[catsKey] !== undefined && state.global[catsKey] !== ""
+      ? state.global[catsKey]
+      : def.defaultCategories;
+
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+    wrap.innerHTML = `
+      <label>${def.label}</label>
+      <div class="grid">
+        <select data-global="${modeKey}" data-sync-type="${def.key}">
+          <option value="all" ${mode === "all" ? "selected" : ""}>Todos</option>
+          <option value="custom" ${mode === "custom" ? "selected" : ""}>Categorías específicas</option>
+          <option value="none" ${mode === "none" ? "selected" : ""}>No incluir este tipo</option>
+        </select>
+        <input data-global="${catsKey}" id="syncCats_${def.key}" value="${escapeAttr(cats)}" placeholder="Categorías separadas por coma (ej: SOCIO, EMPLEADO)" style="display:${mode === "custom" ? "block" : "none"}" />
+      </div>
+    `;
+    container.appendChild(wrap);
+  });
+
+  container.querySelectorAll("[data-sync-type]").forEach(select => {
+    select.addEventListener("change", (e) => {
+      updateSyncCatsVisibility(e.target.dataset.syncType, e.target.value);
+    });
+  });
+}
+
+function updateSyncCatsVisibility(key, mode) {
+  const catsInput = document.getElementById("syncCats_" + key);
+  if (catsInput) {
+    catsInput.style.display = mode === "custom" ? "block" : "none";
+  }
+}
+
+function renderSyncWithPicture() {
+  document.querySelector('[data-global="SYNC_WITH_PICTURE"]').value = state.global.SYNC_WITH_PICTURE || "1";
 }
 
 document.getElementById("filterModeSelect").addEventListener("change", (e) => {

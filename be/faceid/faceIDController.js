@@ -497,7 +497,17 @@ const callDigest = async (device, userInfo, onlyDelete=false) => {
         const result4 = await addCard(digestRequest, device, userInfo);
 
         if (result4) {
-          await addNewPicture(digestRequest, device, document, userInfo.image_url);
+          // userInfo.image_url puede venir null si sync.js trajo a esta
+          // persona sin foto todavia (SYNC_WITH_PICTURE=0) - en ese caso no
+          // se intenta enrolar cara, la persona queda cargada igual
+          // (usuario + tarjeta, si tiene) para que pueda identificarse por
+          // otro medio sin que esto rompa.
+          const hasPicture = Boolean(userInfo.image_url);
+          if (hasPicture) {
+            await addNewPicture(digestRequest, device, document, userInfo.image_url);
+          } else {
+            console.log(`User ${document}: sin foto, se da de alta sin enrolar cara (solo tarjeta/DNI).`);
+          }
         }
 
         // Si la persona tiene id_hash, se intenta cargar ADEMAS como QR

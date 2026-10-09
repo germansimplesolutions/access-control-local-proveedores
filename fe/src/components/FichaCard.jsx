@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types';
-import { Box, Text, Flex, Badge, VStack, Divider, Grid, Table, Thead, Tbody, Tr, Th, Td } from '@chakra-ui/react';
+import { Box, Text, Flex, Badge, VStack, Divider, Grid, Table, Thead, Tbody, Tr, Th, Td, Image } from '@chakra-ui/react';
 
 // Etiquetas en español para el "type" que manda la plataforma central
 // (Resident/Permanent/Temporal, con esa capitalización) en cada
@@ -50,7 +50,7 @@ ExpirationRow.propTypes = {
   expired: PropTypes.bool.isRequired,
 };
 
-const FichaCard = ({ ficha }) => {
+const FichaCard = ({ ficha, photo }) => {
   if (!ficha || !ficha.found) {
     return (
       <Box bg="white" borderRadius={12} p={6} boxShadow="md">
@@ -80,22 +80,37 @@ const FichaCard = ({ ficha }) => {
       )}
 
       <Flex gap={4} alignItems="flex-start" mb={4}>
-        <Box
-          w="100px"
-          h="100px"
-          borderRadius={10}
-          bg="#035187"
-          color="white"
-          fontSize={28}
-          fontWeight={700}
-          display="flex"
-          alignItems="center"
-          justifyContent="center"
-          flexShrink={0}
-          fontFamily="poppins"
-        >
-          {(individual.name || '?').charAt(0)}{(individual.lastname || '').charAt(0)}
-        </Box>
+        {photo ? (
+          // Foto de la persona identificada (viene en el propio evento
+          // accessControlEvent - la misma que el equipo o la carpeta local
+          // le dieron al backend segun PHOTO_SOURCE, ver faceIDController.js).
+          <Image
+            src={`data:image/jpeg;base64,${photo}`}
+            alt={`${individual.name || ''} ${individual.lastname || ''}`}
+            w="100px"
+            h="100px"
+            borderRadius={10}
+            objectFit="cover"
+            flexShrink={0}
+          />
+        ) : (
+          <Box
+            w="100px"
+            h="100px"
+            borderRadius={10}
+            bg="#035187"
+            color="white"
+            fontSize={28}
+            fontWeight={700}
+            display="flex"
+            alignItems="center"
+            justifyContent="center"
+            flexShrink={0}
+            fontFamily="poppins"
+          >
+            {(individual.name || '?').charAt(0)}{(individual.lastname || '').charAt(0)}
+          </Box>
+        )}
         <Box>
           <Text fontSize={22} fontWeight={600} fontFamily="poppins">
             {individual.name} {individual.lastname}
@@ -181,6 +196,7 @@ FichaCard.propTypes = {
     authorizations: PropTypes.array,
     hasExpired: PropTypes.bool,
   }),
+  photo: PropTypes.string,
 };
 
 export default FichaCard;

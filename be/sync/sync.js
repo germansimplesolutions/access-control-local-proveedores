@@ -47,7 +47,10 @@ const getAuthorizations = async () => {
     if (token) {
       var paramgates = gates.join(",");
 
-      const params = "?types=resident-ALL,permanent-SOCIO&with_picture=1&gates=" + paramgates + "&guard_post=" + guard_post + "&idBarriosSync=" + id_barrios_sync;
+      const typesParam = buildTypesParam();
+      const withPictureParam = buildWithPictureParam();
+
+      const params = "?types=" + typesParam + "&with_picture=" + withPictureParam + "&gates=" + paramgates + "&guard_post=" + guard_post + "&idBarriosSync=" + id_barrios_sync;
       const url = url_api + "/accesscontrol/authorization/sync/all" + params;
 
       var options = {
@@ -114,6 +117,59 @@ const parseFilterList = (value) => {
 // with access to both "entrada general" and "gimnasio" loses their gym
 // authorization - only the gimnasio docker's filter should let that
 // deletion through; the entrada general docker should leave them alone).
+// Construye el parametro "types" de la sincronizacion a partir de la
+// configuracion del panel de admin (SYNC_TYPE_RESIDENT_MODE/_CATEGORIES,
+// SYNC_TYPE_PERMANENT_MODE/_CATEGORIES, SYNC_TYPE_TEMPORAL_MODE/_CATEGORIES).
+// Cada tipo puede estar en modo "all" (manda "<tipo>-ALL"), "custom" (una
+// entrada "<tipo>-<CATEGORIA>" por cada categoria separada por coma, usando
+// el mismo parseo que el filtro de lote/categoria) o "none"/sin configurar
+// (no se incluye ese tipo). Si NINGUNO de los tres esta configurado todavia
+// (instalacion existente recien actualizada, antes de tocar nada en el
+// panel), se usa el valor que estaba hardcodeado antes de este cambio, para
+// no alterar el comportamiento de nadie sin que lo configure explicitamente
+// desde el panel.
+const SYNC_TYPE_DEFS = [
+  { envKey: "RESIDENT", prefix: "resident" },
+  { envKey: "PERMANENT", prefix: "permanent" },
+  { envKey: "TEMPORAL", prefix: "temporal" },
+];
+
+const buildTypesParam = () => {
+  const parts = [];
+  let anyConfigured = false;
+
+  for (const { envKey, prefix } of SYNC_TYPE_DEFS) {
+    const mode = process.env["SYNC_TYPE_" + envKey + "_MODE"];
+
+    if (mode !== undefined && mode !== "") {
+      anyConfigured = true;
+    }
+
+    if (mode === "all") {
+      parts.push(prefix + "-ALL");
+    } else if (mode === "custom") {
+      const categories = parseFilterList(process.env["SYNC_TYPE_" + envKey + "_CATEGORIES"]);
+      categories.forEach((cat) => parts.push(prefix + "-" + cat));
+    }
+    // mode === "none" o sin valor: no se agrega nada para este tipo.
+  }
+
+  if (!anyConfigured) {
+    return "resident-ALL,permanent-SOCIO"; // comportamiento de siempre, sin configurar nada
+  }
+
+  return parts.join(",");
+};
+
+// SYNC_WITH_PICTURE (panel de admin): "1" (default, comportamiento de
+// siempre) trae solo personas que ya tienen foto cargada en el servidor
+// central; "0" trae tambien a las que todavia no tienen foto, para poder
+// cargarlas de alta solo con tarjeta/DNI (ver precessNews y
+// faceIDController.js callDigest, que ya soportan userInfo.image_url nulo).
+const buildWithPictureParam = () => {
+  return process.env.SYNC_WITH_PICTURE === "0" ? "0" : "1";
+};
+
 const isFilteredOut = (uf, category) => {
   const mode = (process.env.PERSON_FILTER_MODE || "none").toLowerCase();
   const loteStr = uf !== undefined && uf !== null ? uf.toString() : "";
@@ -197,6 +253,16 @@ const precessNews = async (auths, onlyDelete=false) => {
       
       const id_auth = auth.id;
 
+      // Antes esto asumia que auth.individual.images siempre tenia al menos
+      // una foto (auth.individual.images[0].full_picture_url sin chequear
+      // nada) - con SYNC_WITH_PICTURE=0 el servidor central puede devolver
+      // tambien personas sin foto cargada todavia, y eso rompia aca mismo
+      // (TypeError, "Cannot read properties of undefined") antes de llegar
+      // a procesar a la persona.
+      const images = auth.individual.images;
+      const hasPicture = Array.isArray(images) && images.length > 0;
+      const imageUrl = hasPicture ? images[0].full_picture_url : null;
+
       const userInfo = {
                       document: auth.individual.document.toString(),
                       fullname: auth.individual.name + " " + auth.individual.lastname,
@@ -205,7 +271,7 @@ const precessNews = async (auths, onlyDelete=false) => {
                       uf: auth.uf.toString(),
                       lote: auth.uf.toString(),
                       eventType: "NEW_INDIVIDUAL",
-                      image_url: auth.individual.images[0].full_picture_url,
+                      image_url: imageUrl,
                       category_id: auth.category,
                       id_auth: id_auth,
                       id_barrio: auth.individual.id_barrio,
@@ -213,7 +279,11 @@ const precessNews = async (auths, onlyDelete=false) => {
                       id_hash: auth.id_hash
                     };
 
-      downloadImage(auth.individual.images[0].full_picture_url, `./images/${auth.individual.document}.jpg`);
+      if (hasPicture) {
+        downloadImage(imageUrl, `./images/${auth.individual.document}.jpg`);
+      } else {
+        console.log(`Persona ${auth.individual.document}: sin foto, se da de alta sin enrolar cara (solo tarjeta/DNI).`);
+      }
 
       const response = await processUser(userInfo, onlyDelete);
 

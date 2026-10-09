@@ -34,7 +34,14 @@ const GLOBAL_FIELDS = [
   "BLOCKLIST_CATEGORIAS",
   "ALLOWLIST_LOTES",
   "ALLOWLIST_CATEGORIAS",
-  "PHOTO_SOURCE"
+  "PHOTO_SOURCE",
+  "SYNC_TYPE_RESIDENT_MODE",
+  "SYNC_TYPE_RESIDENT_CATEGORIES",
+  "SYNC_TYPE_PERMANENT_MODE",
+  "SYNC_TYPE_PERMANENT_CATEGORIES",
+  "SYNC_TYPE_TEMPORAL_MODE",
+  "SYNC_TYPE_TEMPORAL_CATEGORIES",
+  "SYNC_WITH_PICTURE"
 ];
 
 function readRawEnv() {
@@ -178,6 +185,23 @@ function validateConfig(config) {
   const photoSource = config.global.PHOTO_SOURCE || "local"; // v2: default "local", ver nota en faceIDController.js
   if (!["device", "local"].includes(photoSource)) {
     errors.push("El origen de las fotos tiene que ser: equipo o carpeta local.");
+  }
+
+  // "" (sin configurar todavia) es un valor valido: sync.js lo interpreta
+  // como "usar el comportamiento de siempre" mientras ningun tipo este
+  // configurado. Solo se rechaza un valor que no sea ninguno de los que
+  // puede mandar el panel.
+  const syncTypeModeKeys = ["SYNC_TYPE_RESIDENT_MODE", "SYNC_TYPE_PERMANENT_MODE", "SYNC_TYPE_TEMPORAL_MODE"];
+  syncTypeModeKeys.forEach((key) => {
+    const mode = config.global[key] || "";
+    if (mode !== "" && !["all", "custom", "none"].includes(mode)) {
+      errors.push(`El modo de sincronización de "${key}" tiene que ser: todos, categorías específicas, o no incluir este tipo.`);
+    }
+  });
+
+  const syncWithPicture = config.global.SYNC_WITH_PICTURE || "";
+  if (syncWithPicture !== "" && !["0", "1"].includes(syncWithPicture)) {
+    errors.push('La opción de fotos al sincronizar tiene que ser "0" o "1".');
   }
 
   return errors;

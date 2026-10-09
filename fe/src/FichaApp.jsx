@@ -13,6 +13,7 @@ function FichaApp() {
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [deviceOptions, setDeviceOptions] = useState([]);
   const [currentFicha, setCurrentFicha] = useState(null);
+  const [currentPhoto, setCurrentPhoto] = useState(null);
   const [accessDeniedInfo, setAccessDeniedInfo] = useState(null);
   const hideTimeoutRef = useRef(null);
 
@@ -44,6 +45,7 @@ function FichaApp() {
     if (config.displayTime !== 'always') {
       hideTimeoutRef.current = setTimeout(() => {
         setCurrentFicha(null);
+        setCurrentPhoto(null);
         setAccessDeniedInfo(null);
       }, config.displayTime * 1000);
     }
@@ -56,6 +58,12 @@ function FichaApp() {
       if (!matchesSelectedDevices(parsedData.deviceName)) return;
 
       setAccessDeniedInfo(null);
+
+      // La foto de la persona identificada viaja en el propio evento (la
+      // pone el backend en getUser/getPictureFromLocal|FaceID segun
+      // PHOTO_SOURCE) - es un base64 sin el prefijo "data:", asi que FichaCard
+      // la antepone antes de usarla como src de una imagen.
+      setCurrentPhoto(parsedData.picture || null);
 
       fetch(`${API_BASE}/api/ficha/${parsedData.id}`)
         .then((res) => res.json())
@@ -141,7 +149,7 @@ function FichaApp() {
               </Box>
             )}
 
-            {currentFicha && <FichaCard ficha={currentFicha} />}
+            {currentFicha && <FichaCard ficha={currentFicha} photo={currentPhoto} />}
           </Box>
         </Center>
       )}
