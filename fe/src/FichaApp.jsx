@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { Box, Text, Image, Button, Center } from '@chakra-ui/react';
+import { Box, Image, Button, Center } from '@chakra-ui/react';
 import ConfigurationModal from './components/ConfigurationModal';
 import FichaCard from './components/FichaCard';
 import { loadFichaConfig, saveFichaConfig } from './utils/fichaConfigStorage';
@@ -14,7 +14,6 @@ function FichaApp() {
   const [deviceOptions, setDeviceOptions] = useState([]);
   const [currentFicha, setCurrentFicha] = useState(null);
   const [currentPhoto, setCurrentPhoto] = useState(null);
-  const [accessDeniedInfo, setAccessDeniedInfo] = useState(null);
   const hideTimeoutRef = useRef(null);
 
   const handleConfigChange = (newConfig) => {
@@ -46,7 +45,6 @@ function FichaApp() {
       hideTimeoutRef.current = setTimeout(() => {
         setCurrentFicha(null);
         setCurrentPhoto(null);
-        setAccessDeniedInfo(null);
       }, config.displayTime * 1000);
     }
   }, [config.displayTime]);
@@ -56,8 +54,6 @@ function FichaApp() {
       const parsedData = JSON.parse(data);
 
       if (!matchesSelectedDevices(parsedData.deviceName)) return;
-
-      setAccessDeniedInfo(null);
 
       // La foto de la persona identificada viaja en el propio evento (la
       // pone el backend en getUser/getPictureFromLocal|FaceID segun
@@ -74,18 +70,10 @@ function FichaApp() {
         .catch((error) => console.error('Error obteniendo la ficha:', error));
     };
 
-    const handleAccessDenied = (data) => {
-      const parsedData = JSON.parse(data);
-      setAccessDeniedInfo(parsedData);
-      scheduleAutoHide();
-    };
-
     socket.on('accessControlEvent', handleAccessControlEvent);
-    socket.on('accessDenied', handleAccessDenied);
 
     return () => {
       socket.off('accessControlEvent', handleAccessControlEvent);
-      socket.off('accessDenied', handleAccessDenied);
     };
   }, [matchesSelectedDevices, scheduleAutoHide]);
 
@@ -121,7 +109,7 @@ function FichaApp() {
         ⚙️ Config
       </Button>
 
-      {!currentFicha && !accessDeniedInfo ? (
+      {!currentFicha ? (
         // Pantalla en reposo: mientras no hay nadie identificándose (al
         // iniciar, o pasado el tiempo configurado en "Mostrar
         // información"), se muestra el logo grande en vez de dejar la
@@ -134,17 +122,6 @@ function FichaApp() {
       ) : (
         <Center>
           <Box w="100%" maxW="680px">
-            {accessDeniedInfo && (
-              <Box bg="#E53E3E" color="white" borderRadius={10} p={4} mb={4} textAlign="center">
-                <Text fontWeight={700} fontSize={20} fontFamily="poppins">
-                  Acceso NO otorgado (DNI {accessDeniedInfo.dni})
-                </Text>
-                <Text fontSize={15} fontFamily="poppins">
-                  Vencido: {(accessDeniedInfo.expiredFields || []).join(', ')}
-                </Text>
-              </Box>
-            )}
-
             {currentFicha && <FichaCard ficha={currentFicha} photo={currentPhoto} />}
           </Box>
         </Center>

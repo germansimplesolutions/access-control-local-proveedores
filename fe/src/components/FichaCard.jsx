@@ -83,12 +83,6 @@ const FichaCard = ({ ficha, photo }) => {
 
   return (
     <Box bg="white" borderRadius={16} p={8} boxShadow="lg" border={hasExpired ? '3px solid #E53E3E' : '1px solid #E2E8F0'}>
-      {hasExpired && (
-        <Box bg="#E53E3E" color="white" borderRadius={8} p={3} mb={4} textAlign="center">
-          <Text fontWeight={700} fontSize={16} fontFamily="poppins">⚠ Tiene documentación o autorización vencida</Text>
-        </Box>
-      )}
-
       <Flex gap={5} alignItems="flex-start" mb={5}>
         {photo ? (
           // Foto de la persona identificada (viene en el propio evento
@@ -128,6 +122,11 @@ const FichaCard = ({ ficha, photo }) => {
           <Text fontSize={28} fontWeight={600} fontFamily="poppins">
             {individual.name} {individual.lastname}
           </Text>
+          {individual.document && (
+            <Text fontSize={15} color="#536d79" fontFamily="poppins">
+              DNI {individual.document}
+            </Text>
+          )}
           {headerSubtitle && (
             <Text fontSize={17} color="#536d79" fontFamily="poppins">
               {headerSubtitle}
@@ -200,7 +199,11 @@ const FichaCard = ({ ficha, photo }) => {
         </Box>
       )}
 
-      {!hasExpired && (
+      {hasExpired ? (
+        <Box mt={5} bg="#E53E3E" color="white" borderRadius={10} p={3} textAlign="center">
+          <Text fontWeight={700} fontSize={18} fontFamily="poppins">⚠ Tiene documentación o autorización vencida</Text>
+        </Box>
+      ) : (
         <Box mt={5} bg="#16A34A" color="white" borderRadius={10} p={3} textAlign="center">
           <Text fontWeight={700} fontSize={18} fontFamily="poppins">✓ INGRESO OK</Text>
         </Box>
