@@ -2,10 +2,9 @@ import { devices } from "../loadEnv.js";
 import AccessControlEvent from "../events/accessControlEvent.js";
 import { saveEntryLog, saveExitLog, sendAck } from "../sync/sync.js";
 import { getPersonByDocument } from "../database/personDatabase.js";
-import { getExpiredFields } from "../database/expirations.js";
+import { getExpiredFields, getAuthorizationsList } from "../database/expirations.js";
 import requestDigest from "request-digest";
 import fs from "fs";
-import crypto from "crypto";
 
 //import { JsonDB, Config } from "node-json-db";
 //const db = new JsonDB(new Config("./database/database.json", true, false, "/"));
@@ -37,78 +36,54 @@ const getUser = async (employeeNo, plate, deviceName, eventType, io, eventDateTi
     password = devices[deviceName].password;
     faceIdIp = devices[deviceName].ip;
 
+  // digestRequest sigue haciendo falta aca: getPictureFromFaceID (cuando
+  // PHOTO_SOURCE=device) lo usa para buscar la foto enrolada en el equipo
+  // (FDSearch, por FPID/documento) - eso no tiene nada que ver con
+  // PersonInfoExtends.
   const digestRequest = requestDigest(username, password);
-  const host = "http://" + faceIdIp;
-  const digestOptions = {
-    host,
-    path: "/ISAPI/AccessControl/UserInfo/Search?format=json",
-    port: 80,
-    method: "POST",
-    json: true,
-    body: {
-      UserInfoSearchCond: {
-        // Unique per-request search session id. A fixed value here made two
-        // near-simultaneous events on the same device share one search
-        // session on the device side, which could return the wrong
-        // person's name/lote/UF paired with the correct photo.
-        searchID: crypto.randomUUID(),
-        searchResultPosition: 0,
-        maxResults: 30,
-        EmployeeNoList: [
-          {
-            employeeNo: employeeNo,
-          },
-        ],
-      },
-    },
-    headers: {
-      "Content-Type": "application/json",
-    },
-  };
 
   try {
-    const response = await digestRequest.requestAsync(digestOptions);
-    const objUser = JSON.parse(JSON.stringify(response.body));
+    const dni = employeeNo;
 
-    const dni = objUser.UserInfoSearch.UserInfo[0].employeeNo;
-    const usr_name = objUser.UserInfoSearch.UserInfo[0].name;
-    const personInfoExtends = objUser.UserInfoSearch.UserInfo[0].PersonInfoExtends;
+    // v2: antes esto le preguntaba al propio equipo (UserInfo/Search) el
+    // nombre y un campo "PersonInfoExtends" grabado en el alta (ver
+    // addNewUser) con lote/UF/categoria/id_barrio. Con una sola
+    // autorizacion por persona nunca daba problema, pero con mas de una
+    // (distintos lotes) cada sincronizacion pisaba ese campo con la
+    // ULTIMA autorizacion procesada, sin ningun criterio - el log de
+    // entrada/salida terminaba atribuido a cualquier lote, no
+    // necesariamente al correcto. Ahora se usa directo la base local
+    // (personDatabase.js), que ya tiene las autorizaciones completas de
+    // la persona, y el equipo deja de necesitar guardar nada de esto.
+    const person = getPersonByDocument(dni);
 
-    var UF = "";
-    var lote = "";
-    var category_id = "";
-    var id_barrio = "";
-
-    if (personInfoExtends[0].value.includes("|")){
-      // PersonInfoExtends":"uf|lote|category_id|id_barrio"
-
-      const arrayPersonInfoExtends = personInfoExtends[0].value.split("|");
-
-      UF = arrayPersonInfoExtends[0].toString();
-      lote = arrayPersonInfoExtends[1].toString();
-      category_id = arrayPersonInfoExtends[2].toString();
-      id_barrio = arrayPersonInfoExtends[3].toString();
-
-    } else {
-      // PersonInfoExtends":[{"value":"{"uf":"108", "lote":"105", "category_id":"PROPIETARIO", "bid":"426"}]
-
-      const objPersonInfoExtends = JSON.parse(personInfoExtends[0].value);
-
-      lote = objPersonInfoExtends.lote.toString();
-      UF = objPersonInfoExtends.uf.toString();
-      category_id = objPersonInfoExtends.category_id.toString();
-
-      // Records written by versions older than multi-barrio support (pre
-      // v13) never had a "bid" key here at all. Instead of crashing on
-      // that person's log forever, fall back to this device's own
-      // ID_BARRIO from the .env file, same as those older versions did.
-      id_barrio = (objPersonInfoExtends.bid !== undefined && objPersonInfoExtends.bid !== null)
-        ? objPersonInfoExtends.bid.toString()
-        : process.env.ID_BARRIO;
+    if (!person) {
+      console.log(`Persona ${dni} identificada por el equipo pero sin datos locales (no sincronizada todavia) - no se muestra ficha ni se loguea.`);
+      return;
     }
 
-    
-     
+    const individual = person.individual || {};
+    const usr_name = [individual.name, individual.lastname].filter(Boolean).join(" ");
+
+    // id_barrio es un dato de la persona (no cambia segun la autorizacion).
+    // Registros viejos (pre multi-barrio) pueden no tenerlo - mismo
+    // fallback al ID_BARRIO de este docker que se usaba antes.
+    const id_barrio = individual.id_barrio
+      ? individual.id_barrio.toString()
+      : process.env.ID_BARRIO;
+
+    // Autorizaciones vigentes (no vencidas) de esta persona - puede haber
+    // mas de una (distintos lotes). Se loguea una entrada por cada una
+    // (ver logAccessForAuthorizations, usado desde getPictureFromLocal/
+    // FaceID) - aca solo se usa la primera para los datos "de exhibicion"
+    // del evento que viaja por el socket a la pantalla de la ficha.
+    const validAuthorizations = getAuthorizationsList(person).filter((auth) => !auth.expired);
+    const primaryAuth = validAuthorizations[0];
+
+    const lote = primaryAuth ? primaryAuth.uf.toString() : "";
+    const UF = lote;
+    const category_id = primaryAuth ? primaryAuth.category : (individual.category_id || "");
+
     const objAccessControlEvent = new AccessControlEvent(
       dni,
       usr_name,
@@ -146,9 +121,9 @@ const getUser = async (employeeNo, plate, deviceName, eventType, io, eventDateTi
     const photoSource = (process.env.PHOTO_SOURCE || "local").toLowerCase();
 
     if (photoSource === "local") {
-      return getPictureFromLocal(dni, plate, objAccessControlEvent, io, eventDateTime, shouldLog)
+      return getPictureFromLocal(dni, plate, objAccessControlEvent, io, eventDateTime, shouldLog, validAuthorizations)
     } else {
-      return getPictureFromFaceID(dni, plate, digestRequest, objAccessControlEvent, faceIdIp, io, eventDateTime, shouldLog)
+      return getPictureFromFaceID(dni, plate, digestRequest, objAccessControlEvent, faceIdIp, io, eventDateTime, shouldLog, validAuthorizations)
     }
 
   } catch (error) {
@@ -320,13 +295,38 @@ const addQrCode = async (digestRequest, device, document, idHash) => {
   }
 }; */
 
+// v2: loguea un ingreso/egreso en la plataforma central. Para ENTRY se
+// loguea UNA VEZ POR CADA autorizacion vigente de la persona (si tiene
+// varios lotes autorizados, se generan varios registros de ingreso - ver
+// decision tomada con el usuario) - si no tiene ninguna vigente en la
+// base local (caso raro con shouldLog=true, por ejemplo una tarjeta sin
+// ficha completa) se loguea una vez igual con el UF que haya quedado en
+// el evento, para no perder el registro por completo. Para EXIT se
+// loguea una sola vez sin importar cuantas autorizaciones tenga: el
+// endpoint de salida (saveExitLog) no tiene nocion de "uf" en absoluto,
+// asi que repetirlo por cada autorizacion solo mandaria el mismo exit
+// duplicado N veces.
+const logAccessForAuthorizations = (objAccessControlEvent, plate, eventDateTime, validAuthorizations) => {
+  if (objAccessControlEvent.event_type == "ENTRY") {
+    const authsToLog = (validAuthorizations && validAuthorizations.length > 0)
+      ? validAuthorizations
+      : [{ uf: objAccessControlEvent.UF }];
+
+    for (const auth of authsToLog) {
+      saveEntryLog(objAccessControlEvent.id, auth.uf, plate, eventDateTime, objAccessControlEvent.id_barrio);
+    }
+  } else {
+    saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
+  }
+};
+
 /** 
  * Gets the image of the person stored in the faceid
  * objAccessControlEvent: It is an object of the AccessControlEvent class to complete the value of the image.
 */
 
 
-const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlEvent, faceIdIp, io, eventDateTime, shouldLog = true) => {
+const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlEvent, faceIdIp, io, eventDateTime, shouldLog = true, validAuthorizations = []) => {
 
   const host = "http://" + faceIdIp;
   //const dni = objAccessControlEvent.id;
@@ -409,11 +409,7 @@ const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlE
         // no hay que loguear un ingreso/egreso que no ocurrio).
 
         if (shouldLog) {
-          if (objAccessControlEvent.event_type == "ENTRY") {
-            saveEntryLog(objAccessControlEvent.id, objAccessControlEvent.UF, plate, eventDateTime, objAccessControlEvent.id_barrio);
-          } else {
-            saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
-          }
+          logAccessForAuthorizations(objAccessControlEvent, plate, eventDateTime, validAuthorizations);
         }
 
 				// Saves the event in the database
@@ -440,11 +436,7 @@ const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlE
       );
 
       if (shouldLog) {
-        if (objAccessControlEvent.event_type == "ENTRY") {
-          saveEntryLog(objAccessControlEvent.id, objAccessControlEvent.UF, plate, eventDateTime, objAccessControlEvent.id_barrio);
-        } else {
-          saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
-        }
+        logAccessForAuthorizations(objAccessControlEvent, plate, eventDateTime, validAuthorizations);
       }
 
       return objAccessControlEvent;
@@ -463,7 +455,7 @@ const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlE
  * objAccessControlEvent: It is an object of the AccessControlEvent class to complete the value of the image.
 */
 
-const getPictureFromLocal = async (dni, plate, objAccessControlEvent, io, eventDateTime, shouldLog = true) => {
+const getPictureFromLocal = async (dni, plate, objAccessControlEvent, io, eventDateTime, shouldLog = true, validAuthorizations = []) => {
 
   const localImage = readImageAsBase64(`./images/${dni}.jpg`);
 
@@ -487,11 +479,7 @@ const getPictureFromLocal = async (dni, plate, objAccessControlEvent, io, eventD
   // un ingreso/egreso que no ocurrio).
 
   if (shouldLog) {
-    if (objAccessControlEvent.event_type == "ENTRY") {
-      saveEntryLog(objAccessControlEvent.id, objAccessControlEvent.UF, plate, eventDateTime, objAccessControlEvent.id_barrio);
-    } else {
-      saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
-    }
+    logAccessForAuthorizations(objAccessControlEvent, plate, eventDateTime, validAuthorizations);
   }
 
     // Saves the event in the database
@@ -639,8 +627,14 @@ const addNewUser = async (digestRequest, device, userInfo) => {
     try {
         const path = "/ISAPI/AccessControl/UserInfo/Record?format=json";
 
-        const propertyValue = userInfo.uf + "|" + userInfo.lote + "|" + userInfo.category_id + "|" + userInfo.id_barrio;
-
+        // v2: antes aca se grababa "PersonInfoExtends" con
+        // uf|lote|category_id|id_barrio, y getUser() se lo volvia a leer
+        // al equipo para armar el log de entrada/salida. Con mas de una
+        // autorizacion por persona ese campo (uno solo por usuario en el
+        // equipo) terminaba con el valor de la ULTIMA autorizacion
+        // sincronizada, sin ningun criterio. Ahora ese dato se saca
+        // directo de la base local (ver getUser), asi que el equipo ya no
+        // necesita guardar nada de esto.
         const body = {
           UserInfo: {
             "employeeNo":userInfo.document,
@@ -670,12 +664,6 @@ const addNewUser = async (digestRequest, device, userInfo) => {
             "doorRight":"1",
             "RightPlan":[{"doorNo":1,"planTemplateNo":"1"}],
             "userVerifyMode":"",
-            "PersonInfoExtends": [
-              {
-                "name": "properties",
-                "value": propertyValue,
-              },
-            ],
           },
         };
 
