@@ -60,6 +60,33 @@ ExpirationRow.propTypes = {
   expired: PropTypes.bool.isRequired,
 };
 
+// Fila de cobertura Taker (reemplaza a ART y Certificado de reincidencia
+// cuando Taker está activo, ver databaseRoutes.js) - un tilde verde "TAKER
+// OK" si confirmó cobertura, o una cruz roja con el mensaje que devolvió
+// Taker (o el genérico si no respondió) si no.
+const TakerRow = ({ taker }) => (
+  <Flex justifyContent="space-between" alignItems="center" py={2}>
+    <Text fontSize={15} fontFamily="poppins">Cobertura (Taker)</Text>
+    <Flex alignItems="center" gap={3} flexShrink={0}>
+      {!taker.ok && taker.message && (
+        <Text fontSize={13} color="#536d79" fontFamily="poppins" textAlign="right">
+          {taker.message}
+        </Text>
+      )}
+      <Badge colorScheme={taker.ok ? 'green' : 'red'} fontSize={12} px={2} py={1} whiteSpace="nowrap">
+        {taker.ok ? '✓ TAKER OK' : '✗ TAKER'}
+      </Badge>
+    </Flex>
+  </Flex>
+);
+
+TakerRow.propTypes = {
+  taker: PropTypes.shape({
+    ok: PropTypes.bool.isRequired,
+    message: PropTypes.string,
+  }).isRequired,
+};
+
 const FichaCard = ({ ficha, photo }) => {
   if (!ficha || !ficha.found) {
     return (
@@ -71,7 +98,7 @@ const FichaCard = ({ ficha, photo }) => {
     );
   }
 
-  const { person, expirationDetails, authorizations, hasExpired } = ficha;
+  const { person, expirationDetails, authorizations, hasExpired, taker } = ficha;
   const individual = person.individual || {};
   const car = Array.isArray(individual.cars) ? individual.cars[0] : null;
 
@@ -151,6 +178,7 @@ const FichaCard = ({ ficha, photo }) => {
         Vencimientos
       </Text>
       <VStack spacing={0} align="stretch">
+        {taker && <TakerRow taker={taker} />}
         {expirationDetails.map((item) => (
           <ExpirationRow key={item.label} label={item.label} date={item.date} expired={item.expired} />
         ))}
@@ -219,6 +247,10 @@ FichaCard.propTypes = {
     expirationDetails: PropTypes.array,
     authorizations: PropTypes.array,
     hasExpired: PropTypes.bool,
+    taker: PropTypes.shape({
+      ok: PropTypes.bool,
+      message: PropTypes.string,
+    }),
   }),
   photo: PropTypes.string,
 };

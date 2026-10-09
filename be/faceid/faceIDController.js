@@ -3,8 +3,17 @@ import AccessControlEvent from "../events/accessControlEvent.js";
 import { saveEntryLog, saveExitLog, sendAck } from "../sync/sync.js";
 import { getPersonByDocument } from "../database/personDatabase.js";
 import { getExpiredFields, getAuthorizationsList } from "../database/expirations.js";
+import { getTakerConfig, checkCobertura, registerAcceso } from "../taker/takerClient.js";
 import requestDigest from "request-digest";
 import fs from "fs";
+
+// Con Taker activo, ART y Certificado de reincidencia dejan de validarse
+// contra las fechas locales - los reemplaza la consulta en vivo a
+// /cobertura (ver taker/takerClient.js). El resto (registro de conducir,
+// seguro del vehículo, autorización de ingreso) sigue igual que siempre.
+// Mismo array usado en databaseRoutes.js para la ficha, para que los dos
+// lados coincidan.
+const TAKER_EXCLUDED_KEYS = ["art_date", "cert_penalty_date"];
 
 //import { JsonDB, Config } from "node-json-db";
 //const db = new JsonDB(new Config("./database/database.json", true, false, "/"));
@@ -209,7 +218,21 @@ const respondToRemoteCheck = async (dni, deviceName, serialNo, io) => {
       return;
     }
 
-    const expiredFields = getExpiredFields(person);
+    const takerConfig = getTakerConfig();
+
+    // Con Taker activo se consulta su cobertura en vez de validar ART/
+    // reincidencia localmente (ver TAKER_EXCLUDED_KEYS arriba) - si Taker
+    // no confirma cobertura (error puntual de la persona, o Taker caído/sin
+    // responder), se bloquea el acceso igual (fail closed, decisión
+    // explícita del usuario) y se muestra el motivo correspondiente.
+    const takerResult = takerConfig.enabled ? await checkCobertura(dni) : null;
+    const excludeKeys = takerConfig.enabled ? TAKER_EXCLUDED_KEYS : [];
+
+    const expiredFields = getExpiredFields(person, { excludeKeys });
+
+    if (takerResult && !takerResult.ok) {
+      expiredFields.unshift(takerResult.message);
+    }
 
     if (expiredFields.length > 0) {
       const info = expiredFields.join(", ");
@@ -317,6 +340,17 @@ const logAccessForAuthorizations = (objAccessControlEvent, plate, eventDateTime,
     }
   } else {
     saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
+  }
+
+  // Taker: una sola notificacion a /acceso por evento real (nunca una por
+  // cada autorizacion/lote de la persona, a diferencia del loop de
+  // saveEntryLog de arriba) - Taker decide el mismo si es entrada o salida
+  // segun el ultimo estado que tenga de esa persona. No se espera (await)
+  // esto: ya se decidio si se abria o no la puerta (ver
+  // respondToRemoteCheck), esto es solo un efecto secundario que no puede
+  // demorar ni afectar el resto del flujo.
+  if (getTakerConfig().enabled) {
+    registerAcceso(objAccessControlEvent.id);
   }
 };
 

@@ -65,12 +65,18 @@ function hasValidAuthorization(person) {
 // la persona este vigente (antes esto ultimo no se chequeaba en absoluto -
 // una persona con documentos al dia pero autorizacion ya vencida igual
 // conseguia que se abriera la puerta).
-function getExpiredFields(person) {
+// options.excludeKeys: claves de EXPIRATION_FIELDS (ej. "art_date") que no
+// se chequean acá - pensado para cuando Taker está activo y reemplaza esa
+// validación puntual por su propia consulta de cobertura (ver
+// ../taker/takerClient.js y sus usos en faceIDController.js/databaseRoutes.js).
+function getExpiredFields(person, options = {}) {
+  const { excludeKeys = [] } = options;
   const expired = [];
   const individual = person?.individual;
 
   if (individual) {
     for (const field of EXPIRATION_FIELDS) {
+      if (excludeKeys.includes(field.key)) continue;
       if (isExpired(individual[field.key])) {
         expired.push(field.label);
       }
@@ -95,13 +101,15 @@ function getExpiredFields(person) {
 // Devuelve el detalle de cada item chequeado (vigente o vencido, con su
 // fecha), pensado para mostrar en la ficha del front - no solo la lista de
 // lo vencido, sino el estado de TODO lo que se chequea.
-function getExpirationDetails(person) {
+function getExpirationDetails(person, options = {}) {
+  const { excludeKeys = [] } = options;
   const individual = person?.individual;
   const details = [];
 
   if (!individual) return details;
 
   for (const field of EXPIRATION_FIELDS) {
+    if (excludeKeys.includes(field.key)) continue;
     const date = individual[field.key] || null;
     details.push({
       label: field.label,

@@ -2,6 +2,13 @@ import { Router } from "express";
 import { getPersonByDocument, getAllPersons } from "./personDatabase.js";
 import { getExpirationDetails, getExpiredFields, getAuthorizationsList } from "./expirations.js";
 import { gates } from "../loadEnv.js";
+import { getTakerConfig, checkCobertura } from "../taker/takerClient.js";
+
+// Con Taker activo, ART y Certificado de reincidencia dejan de validarse
+// contra las fechas locales - los reemplaza la consulta en vivo a
+// /cobertura (ver taker/takerClient.js). El resto (registro de conducir,
+// seguro del vehículo, autorización de ingreso) sigue igual que siempre.
+const TAKER_EXCLUDED_KEYS = ["art_date", "cert_penalty_date"];
 
 const router = new Router();
 
@@ -15,7 +22,7 @@ router.get("/api/devices", (req, res) => {
 // GET /api/ficha/:document - datos completos de una persona (sin user ni
 // resident_phones, nunca se guardaron) mas el detalle de vencimientos, para
 // que el front arme la ficha.
-router.get("/api/ficha/:document", (req, res) => {
+router.get("/api/ficha/:document", async (req, res) => {
   const person = getPersonByDocument(req.params.document);
 
   if (!person) {
@@ -23,8 +30,21 @@ router.get("/api/ficha/:document", (req, res) => {
     return res.json({ found: false, message: "No hay datos locales para ese documento." });
   }
 
-  const expirationDetails = getExpirationDetails(person);
-  const expiredFields = getExpiredFields(person);
+  const takerConfig = getTakerConfig();
+  const excludeKeys = takerConfig.enabled ? TAKER_EXCLUDED_KEYS : [];
+
+  // Misma consulta que ya se hizo (o se está haciendo) para decidir si se
+  // abre la puerta (ver respondToRemoteCheck en faceIDController.js) - se
+  // reutiliza el resultado cacheado en checkCobertura, no se le pega dos
+  // veces a Taker por la misma identificación.
+  let taker = null;
+  if (takerConfig.enabled) {
+    const result = await checkCobertura(req.params.document);
+    taker = { ok: result.ok, message: result.ok ? null : result.message };
+  }
+
+  const expirationDetails = getExpirationDetails(person, { excludeKeys });
+  const expiredFields = getExpiredFields(person, { excludeKeys });
   const authorizations = getAuthorizationsList(person);
 
   res.json({
@@ -32,8 +52,9 @@ router.get("/api/ficha/:document", (req, res) => {
     person,
     expirationDetails,
     authorizations,
-    hasExpired: expiredFields.length > 0,
+    hasExpired: expiredFields.length > 0 || Boolean(taker && !taker.ok),
     expiredFields,
+    taker,
   });
 });
 

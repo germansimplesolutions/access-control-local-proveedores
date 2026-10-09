@@ -41,7 +41,14 @@ const GLOBAL_FIELDS = [
   "SYNC_TYPE_PERMANENT_CATEGORIES",
   "SYNC_TYPE_TEMPORAL_MODE",
   "SYNC_TYPE_TEMPORAL_CATEGORIES",
-  "SYNC_WITH_PICTURE"
+  "SYNC_WITH_PICTURE",
+  "TAKER_ENABLED",
+  "TAKER_LOGIN_URL",
+  "TAKER_COBERTURA_URL",
+  "TAKER_ACCESO_URL",
+  "TAKER_ID",
+  "TAKER_USER",
+  "TAKER_PASS"
 ];
 
 function readRawEnv() {
@@ -202,6 +209,19 @@ function validateConfig(config) {
   const syncWithPicture = config.global.SYNC_WITH_PICTURE || "";
   if (syncWithPicture !== "" && !["0", "1"].includes(syncWithPicture)) {
     errors.push('La opción de fotos al sincronizar tiene que ser "0" o "1".');
+  }
+
+  const takerEnabled = config.global.TAKER_ENABLED || "0";
+  if (!["0", "1"].includes(takerEnabled)) {
+    errors.push('La opción de Taker activado tiene que ser "0" o "1".');
+  }
+  if (takerEnabled === "1") {
+    if (!config.global.TAKER_LOGIN_URL) errors.push("Taker: falta la URL de login.");
+    if (!config.global.TAKER_COBERTURA_URL) errors.push("Taker: falta la URL de cobertura.");
+    if (!config.global.TAKER_ACCESO_URL) errors.push("Taker: falta la URL de acceso.");
+    if (!config.global.TAKER_ID) errors.push("Taker: falta el Taker ID.");
+    if (!config.global.TAKER_USER) errors.push("Taker: falta el usuario.");
+    if (!config.global.TAKER_PASS) errors.push("Taker: falta la contraseña.");
   }
 
   return errors;

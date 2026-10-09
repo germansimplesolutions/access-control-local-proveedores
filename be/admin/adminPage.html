@@ -186,6 +186,48 @@
     <div class="hint">"Equipo Face ID" le pide la foto al dispositivo en cada evento de entrada/salida. "Carpeta local" usa directamente la foto que ya se descargó y guardó en <code>images/</code> al sincronizar a la persona, sin volver a pedírsela al equipo.</div>
   </div>
 
+  <div class="card">
+    <h2>Taker (verificación de cobertura externa)</h2>
+    <div class="field" style="max-width:420px">
+      <label>Taker</label>
+      <select id="takerEnabledSelect" data-global="TAKER_ENABLED">
+        <option value="0">Desactivado</option>
+        <option value="1">Activado</option>
+      </select>
+    </div>
+
+    <div id="takerFields" style="display:none">
+      <div class="grid">
+        <div class="field">
+          <label>URL de login</label>
+          <input data-global="TAKER_LOGIN_URL" placeholder="https://.../auth/login" />
+        </div>
+        <div class="field">
+          <label>URL de cobertura</label>
+          <input data-global="TAKER_COBERTURA_URL" placeholder="https://.../cobertura" />
+        </div>
+        <div class="field">
+          <label>URL de acceso</label>
+          <input data-global="TAKER_ACCESO_URL" placeholder="https://.../acceso" />
+        </div>
+        <div class="field">
+          <label>Taker ID</label>
+          <input data-global="TAKER_ID" placeholder="ID que usa Taker para este barrio" />
+        </div>
+        <div class="field">
+          <label>Usuario Taker</label>
+          <input data-global="TAKER_USER" />
+        </div>
+        <div class="field">
+          <label>Contraseña Taker</label>
+          <input type="password" data-global="TAKER_PASS" />
+        </div>
+      </div>
+    </div>
+
+    <div class="hint">Con Taker activado, al identificar a una persona se consulta su cobertura contra Taker en vez de validar localmente las fechas de ART y Certificado de reincidencia (el resto de las validaciones - registro de conducir, seguro del vehículo, autorización de ingreso - sigue igual que siempre). El "Taker ID" es el identificador que Taker usa para este barrio (lo da Taker, puede variar de un barrio a otro).</div>
+  </div>
+
   <div class="toolbar">
     <button type="submit" class="save-btn">Guardar</button>
     <button type="button" id="logoutBtn" class="add-btn">Cerrar sesión</button>
@@ -296,6 +338,7 @@ function render() {
   renderPhotoSource();
   renderSyncTypes();
   renderSyncWithPicture();
+  renderTaker();
 }
 
 function renderGlobal() {
@@ -465,6 +508,27 @@ function updateSyncCatsVisibility(key, mode) {
 function renderSyncWithPicture() {
   document.querySelector('[data-global="SYNC_WITH_PICTURE"]').value = state.global.SYNC_WITH_PICTURE || "1";
 }
+
+function renderTaker() {
+  const enabled = state.global.TAKER_ENABLED || "0";
+  document.getElementById("takerEnabledSelect").value = enabled;
+  document.querySelector('[data-global="TAKER_LOGIN_URL"]').value = state.global.TAKER_LOGIN_URL || "";
+  document.querySelector('[data-global="TAKER_COBERTURA_URL"]').value = state.global.TAKER_COBERTURA_URL || "";
+  document.querySelector('[data-global="TAKER_ACCESO_URL"]').value = state.global.TAKER_ACCESO_URL || "";
+  document.querySelector('[data-global="TAKER_ID"]').value = state.global.TAKER_ID || "";
+  document.querySelector('[data-global="TAKER_USER"]').value = state.global.TAKER_USER || "";
+  document.querySelector('[data-global="TAKER_PASS"]').value = state.global.TAKER_PASS || "";
+
+  updateTakerVisibility(enabled);
+}
+
+function updateTakerVisibility(enabled) {
+  document.getElementById("takerFields").style.display = enabled === "1" ? "block" : "none";
+}
+
+document.getElementById("takerEnabledSelect").addEventListener("change", (e) => {
+  updateTakerVisibility(e.target.value);
+});
 
 document.getElementById("filterModeSelect").addEventListener("change", (e) => {
   updatePersonFilterVisibility(e.target.value);
