@@ -1,5 +1,16 @@
 import PropTypes from 'prop-types';
-import { Box, Text, Flex, Badge, VStack, Divider, Grid } from '@chakra-ui/react';
+import { Box, Text, Flex, Badge, VStack, Divider, Grid, Table, Thead, Tbody, Tr, Th, Td } from '@chakra-ui/react';
+
+// Etiquetas en español para el "type" que manda la plataforma central
+// (Resident/Permanent/Temporal, con esa capitalización) en cada
+// autorización.
+const TYPE_LABELS = {
+  resident: 'Residente',
+  permanent: 'Permanente',
+  temporal: 'Temporal',
+};
+
+const typeLabel = (type) => TYPE_LABELS[(type || '').toLowerCase()] || type || '—';
 
 // Muestra un dato de la ficha (label + valor), ocultando la fila si el
 // valor viene vacío.
@@ -50,44 +61,62 @@ const FichaCard = ({ ficha }) => {
     );
   }
 
-  const { person, expirationDetails, hasExpired } = ficha;
+  const { person, expirationDetails, authorizations, hasExpired } = ficha;
   const individual = person.individual || {};
   const car = Array.isArray(individual.cars) ? individual.cars[0] : null;
+
+  // "Categoría - Empresa" debajo del nombre - individual.category_id es el
+  // mismo dato para cualquiera de las autorizaciones de la persona (no
+  // depende de a que lote puntual se esta mostrando acá), así que no hace
+  // falta elegir entre varias.
+  const headerSubtitle = [individual.category_id, individual.company].filter(Boolean).join(' - ');
 
   return (
     <Box bg="white" borderRadius={12} p={6} boxShadow="md" border={hasExpired ? '3px solid #E53E3E' : '1px solid #E2E8F0'}>
       {hasExpired && (
         <Box bg="#E53E3E" color="white" borderRadius={8} p={2} mb={4} textAlign="center">
-          <Text fontWeight={700} fontFamily="poppins">⚠ Tiene documentación vencida</Text>
+          <Text fontWeight={700} fontFamily="poppins">⚠ Tiene documentación o autorización vencida</Text>
         </Box>
       )}
 
-      <Flex justifyContent="space-between" alignItems="flex-start" mb={4}>
+      <Flex gap={4} alignItems="flex-start" mb={4}>
+        <Box
+          w="100px"
+          h="100px"
+          borderRadius={10}
+          bg="#035187"
+          color="white"
+          fontSize={28}
+          fontWeight={700}
+          display="flex"
+          alignItems="center"
+          justifyContent="center"
+          flexShrink={0}
+          fontFamily="poppins"
+        >
+          {(individual.name || '?').charAt(0)}{(individual.lastname || '').charAt(0)}
+        </Box>
         <Box>
           <Text fontSize={22} fontWeight={600} fontFamily="poppins">
             {individual.name} {individual.lastname}
           </Text>
-          <Text fontSize={14} color="#536d79" fontFamily="poppins">
-            DNI {individual.document} · {person.category}
-          </Text>
-        </Box>
-        <Box textAlign="right">
-          <Text fontSize={13} color="#536d79" fontFamily="poppins">Lote {person.uf}</Text>
+          {headerSubtitle && (
+            <Text fontSize={14} color="#536d79" fontFamily="poppins">
+              {headerSubtitle}
+            </Text>
+          )}
         </Box>
       </Flex>
 
-      <Divider mb={4} />
-
-      <Grid templateColumns="1fr 1fr" gap={4} mb={4}>
-        <Field label="Empresa" value={individual.company} />
-        <Field label="ART" value={individual.art_company} />
-        {car && (
-          <>
+      {car && (
+        <>
+          <Divider mb={4} />
+          <Grid templateColumns="1fr 1fr" gap={4} mb={4}>
             <Field label="Vehículo" value={car.brand} />
             <Field label="Patente" value={car.plate} />
-          </>
-        )}
-      </Grid>
+          </Grid>
+        </>
+      )}
 
       <Divider mb={2} />
 
@@ -99,6 +128,47 @@ const FichaCard = ({ ficha }) => {
           <ExpirationRow key={item.label} label={item.label} date={item.date} expired={item.expired} />
         ))}
       </VStack>
+
+      <Divider my={4} />
+
+      <Text fontSize={14} fontWeight={600} mb={2} fontFamily="poppins">
+        Autorizaciones de Ingreso
+      </Text>
+      {(!authorizations || authorizations.length === 0) ? (
+        <Text fontSize={13} color="#536d79" fontFamily="poppins">Sin autorizaciones registradas.</Text>
+      ) : (
+        <Table size="sm" variant="simple">
+          <Thead>
+            <Tr>
+              <Th pl={0} fontFamily="poppins">Lote</Th>
+              <Th fontFamily="poppins">UF</Th>
+              <Th fontFamily="poppins">Tipo</Th>
+              <Th fontFamily="poppins">Categoría</Th>
+              <Th pr={0} textAlign="right" fontFamily="poppins">Autorizado Hasta</Th>
+            </Tr>
+          </Thead>
+          <Tbody>
+            {authorizations.map((auth) => (
+              <Tr key={auth.id}>
+                <Td pl={0} fontFamily="poppins" fontSize={13}>{auth.uf}</Td>
+                <Td fontFamily="poppins" fontSize={13}>{auth.uf}</Td>
+                <Td fontFamily="poppins" fontSize={13}>{typeLabel(auth.type)}</Td>
+                <Td fontFamily="poppins" fontSize={13}>{auth.category}</Td>
+                <Td pr={0} textAlign="right">
+                  <Flex justifyContent="flex-end" alignItems="center" gap={2}>
+                    <Text fontSize={12} color="#536d79" fontFamily="poppins">
+                      {auth.authDateTo || 'Sin vencimiento'}
+                    </Text>
+                    <Badge colorScheme={auth.expired ? 'red' : 'green'}>
+                      {auth.expired ? 'Vencido' : 'Vigente'}
+                    </Badge>
+                  </Flex>
+                </Td>
+              </Tr>
+            ))}
+          </Tbody>
+        </Table>
+      )}
     </Box>
   );
 };
@@ -108,6 +178,7 @@ FichaCard.propTypes = {
     found: PropTypes.bool,
     person: PropTypes.object,
     expirationDetails: PropTypes.array,
+    authorizations: PropTypes.array,
     hasExpired: PropTypes.bool,
   }),
 };

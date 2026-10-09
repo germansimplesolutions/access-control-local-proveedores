@@ -21,26 +21,72 @@ function isExpired(dateStr) {
   return expDate < today;
 }
 
+// Una autorizacion puntual (un lote/UF con su tipo y categoria) vencida
+// segun su propia fecha "Autorizado Hasta" (dates.auth_date_to). Sin fecha
+// cargada (null o "0000-00-00") = autorizacion sin vencimiento, no se
+// considera vencida - mismo criterio que isExpired() de arriba.
+function isAuthExpired(auth) {
+  const dateTo = auth?.dates?.auth_date_to;
+  if (!dateTo || dateTo === "0000-00-00") return false;
+  return isExpired(dateTo);
+}
+
+// Listado de autorizaciones de ingreso de la persona (para la tabla de la
+// ficha), cada una con su propio estado vigente/vencido - pensado para
+// mostrar, no para decidir apertura (eso lo hace hasValidAuthorization).
+function getAuthorizationsList(person) {
+  const authorizations = person?.authorizations || {};
+  return Object.values(authorizations)
+    .map((auth) => ({
+      id: auth.id,
+      uf: auth.uf,
+      type: auth.type,
+      category: auth.category,
+      authDateTo: (auth?.dates?.auth_date_to && auth.dates.auth_date_to !== "0000-00-00") ? auth.dates.auth_date_to : null,
+      expired: isAuthExpired(auth),
+    }))
+    .sort((a, b) => (a.id || 0) - (b.id || 0));
+}
+
+// Si la persona tiene al menos UNA autorizacion vigente (sin vencer). Sin
+// ninguna autorizacion registrada se considera que no tiene autorizacion
+// vigente (comportamiento conservador, igual que cuando no hay ficha local
+// en absoluto).
+function hasValidAuthorization(person) {
+  const authorizations = person?.authorizations || {};
+  const list = Object.values(authorizations);
+  if (list.length === 0) return false;
+  return list.some((auth) => !isAuthExpired(auth));
+}
+
 // Devuelve la lista de cosas vencidas en formato legible, por ejemplo:
-// ["ART", "Seguro del vehiculo (AA123BB)"]
+// ["ART", "Seguro del vehiculo (AA123BB)"]. Incluye tanto documentacion
+// personal vencida como el caso de que NINGUNA autorizacion de ingreso de
+// la persona este vigente (antes esto ultimo no se chequeaba en absoluto -
+// una persona con documentos al dia pero autorizacion ya vencida igual
+// conseguia que se abriera la puerta).
 function getExpiredFields(person) {
   const expired = [];
   const individual = person?.individual;
 
-  if (!individual) return expired;
+  if (individual) {
+    for (const field of EXPIRATION_FIELDS) {
+      if (isExpired(individual[field.key])) {
+        expired.push(field.label);
+      }
+    }
 
-  for (const field of EXPIRATION_FIELDS) {
-    if (isExpired(individual[field.key])) {
-      expired.push(field.label);
+    if (Array.isArray(individual.cars)) {
+      for (const car of individual.cars) {
+        if (isExpired(car.insurance_exp_date)) {
+          expired.push(`Seguro del vehiculo${car.plate ? " (" + car.plate + ")" : ""}`);
+        }
+      }
     }
   }
 
-  if (Array.isArray(individual.cars)) {
-    for (const car of individual.cars) {
-      if (isExpired(car.insurance_exp_date)) {
-        expired.push(`Seguro del vehiculo${car.plate ? " (" + car.plate + ")" : ""}`);
-      }
-    }
+  if (!hasValidAuthorization(person)) {
+    expired.push("Autorización de ingreso");
   }
 
   return expired;
@@ -78,4 +124,4 @@ function getExpirationDetails(person) {
   return details;
 }
 
-export { EXPIRATION_FIELDS, isExpired, getExpiredFields, getExpirationDetails };
+export { EXPIRATION_FIELDS, isExpired, getExpiredFields, getExpirationDetails, isAuthExpired, getAuthorizationsList, hasValidAuthorization };

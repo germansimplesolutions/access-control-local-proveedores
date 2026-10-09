@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getPersonByDocument, getAllPersons } from "./personDatabase.js";
-import { getExpirationDetails, getExpiredFields } from "./expirations.js";
+import { getExpirationDetails, getExpiredFields, getAuthorizationsList } from "./expirations.js";
 import { gates } from "../loadEnv.js";
 
 const router = new Router();
@@ -25,11 +25,13 @@ router.get("/api/ficha/:document", (req, res) => {
 
   const expirationDetails = getExpirationDetails(person);
   const expiredFields = getExpiredFields(person);
+  const authorizations = getAuthorizationsList(person);
 
   res.json({
     found: true,
     person,
     expirationDetails,
+    authorizations,
     hasExpired: expiredFields.length > 0,
     expiredFields,
   });
@@ -44,8 +46,9 @@ router.get("/api/ficha", (req, res) => {
     document: person?.individual?.document,
     name: person?.individual?.name,
     lastname: person?.individual?.lastname,
-    uf: person?.uf,
-    category: person?.category,
+    category: person?.individual?.category_id,
+    company: person?.individual?.company,
+    authorizationsCount: Object.keys(person?.authorizations || {}).length,
     hasExpired: getExpiredFields(person).length > 0,
   }));
 

@@ -142,12 +142,14 @@ const precessNews = async (auths, onlyDelete=false) => {
 
     try {
 
-      // Base de datos local (v2): se guarda todo lo que llega de esta
-      // persona, MENOS "user" y "resident_phones", sin importar si despues
-      // el filtro de lote/categoria la descarta para este equipo puntual -
-      // esta base es de "quien es esta persona", separada de "a que
-      // equipos tiene acceso".
-      saveAuthToDatabase(auth);
+      // Base de datos local (v2): se guarda/borra esta autorizacion puntual
+      // de esta persona, MENOS "user" y "resident_phones", sin importar si
+      // despues el filtro de lote/categoria la descarta para este equipo
+      // puntual - esta base es de "quien es esta persona y a que lotes
+      // esta autorizada", separada de "a que equipos tiene acceso este
+      // docker". onlyDelete=true borra esa autorizacion puntual en vez de
+      // guardarla (ver saveAuthToDatabase).
+      saveAuthToDatabase(auth, onlyDelete);
 
       if (isFilteredOut(auth.uf, auth.category)) {
         console.log(`Persona ${auth.individual?.document} ${onlyDelete ? "(baja) " : ""}descartada por el filtro de lote/categoria (lote=${auth.uf}, categoria=${auth.category}) - no le corresponde a este equipo.`);

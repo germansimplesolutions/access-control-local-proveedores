@@ -117,28 +117,34 @@ function FichaApp() {
         <Image src="/logo.svg" h="50px" />
       </Flex>
 
-      <Center>
-        <Box w="100%" maxW="480px">
-          {accessDeniedInfo && (
-            <Box bg="#E53E3E" color="white" borderRadius={8} p={3} mb={4} textAlign="center">
-              <Text fontWeight={700} fontFamily="poppins">
-                Acceso NO otorgado (DNI {accessDeniedInfo.dni})
-              </Text>
-              <Text fontSize={13} fontFamily="poppins">
-                Vencido: {(accessDeniedInfo.expiredFields || []).join(', ')}
-              </Text>
-            </Box>
-          )}
+      {!currentFicha && !accessDeniedInfo ? (
+        // Pantalla en reposo: mientras no hay nadie identificándose (al
+        // iniciar, o pasado el tiempo configurado en "Mostrar
+        // información"), se muestra el logo grande en vez de dejar la
+        // pantalla con un texto chico - pensado para pantallas que quedan
+        // mirando al público/entrada. Fuera del Box angosto de abajo a
+        // propósito, para que pueda ocupar bien el centro de la pantalla.
+        <Center minH="60vh">
+          <Image src="/idle-background.png" maxW="90vw" w="720px" />
+        </Center>
+      ) : (
+        <Center>
+          <Box w="100%" maxW="480px">
+            {accessDeniedInfo && (
+              <Box bg="#E53E3E" color="white" borderRadius={8} p={3} mb={4} textAlign="center">
+                <Text fontWeight={700} fontFamily="poppins">
+                  Acceso NO otorgado (DNI {accessDeniedInfo.dni})
+                </Text>
+                <Text fontSize={13} fontFamily="poppins">
+                  Vencido: {(accessDeniedInfo.expiredFields || []).join(', ')}
+                </Text>
+              </Box>
+            )}
 
-          {currentFicha ? (
-            <FichaCard ficha={currentFicha} />
-          ) : (
-            <Box textAlign="center" color="#536d79">
-              <Text fontFamily="poppins">Esperando una identificación...</Text>
-            </Box>
-          )}
-        </Box>
-      </Center>
+            {currentFicha && <FichaCard ficha={currentFicha} />}
+          </Box>
+        </Center>
+      )}
     </Box>
   );
 }
