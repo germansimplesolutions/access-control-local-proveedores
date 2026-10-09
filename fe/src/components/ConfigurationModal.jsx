@@ -40,9 +40,17 @@ const ConfigurationModal = ({ isOpen, onClose, config, onConfigChange, deviceOpt
   const toggleSelectedDevice = (deviceName, checked) => {
     setLocalConfig((prev) => {
       const current = Array.isArray(prev.selectedFaceIdDevices) ? prev.selectedFaceIdDevices : [];
+      // Lista vacia = "se muestran todos" (ver fichaConfigStorage.js), y en
+      // ese estado el tab de abajo muestra TODOS los checkboxes tildados
+      // (ver isChecked mas abajo). Si el usuario destilda un equipo
+      // partiendo de ahi, hay que pasar a una lista explicita con todos los
+      // equipos MENOS el que acaba de destildar - filtrar directo sobre el
+      // array vacio no sacaba nada (ese era el bug: destildar no tenia
+      // ningun efecto visible).
+      const effectiveCurrent = current.length === 0 ? [...deviceOptions] : current;
       const next = checked
-        ? [...new Set([...current, deviceName])]
-        : current.filter((d) => d !== deviceName);
+        ? [...new Set([...effectiveCurrent, deviceName])]
+        : effectiveCurrent.filter((d) => d !== deviceName);
       return { ...prev, selectedFaceIdDevices: next };
     });
   };
@@ -291,16 +299,25 @@ const ConfigurationModal = ({ isOpen, onClose, config, onConfigChange, deviceOpt
                     </Text>
 
                     <VStack spacing={2} align="start" pl={2}>
-                      {deviceOptions.map((deviceName) => (
-                        <Checkbox
-                          key={deviceName}
-                          isChecked={(localConfig.selectedFaceIdDevices || []).includes(deviceName)}
-                          onChange={(e) => toggleSelectedDevice(deviceName, e.target.checked)}
-                          fontFamily="poppins"
-                        >
-                          {deviceName}
-                        </Checkbox>
-                      ))}
+                      {deviceOptions.map((deviceName) => {
+                        const selected = localConfig.selectedFaceIdDevices || [];
+                        // Lista vacia = se muestran todos los equipos (ver
+                        // fichaConfigStorage.js) - los checkboxes se ven
+                        // todos tildados para que coincida con lo que
+                        // realmente esta pasando en pantalla, en vez de
+                        // mostrarse todos destildados y confundir.
+                        const isChecked = selected.length === 0 ? true : selected.includes(deviceName);
+                        return (
+                          <Checkbox
+                            key={deviceName}
+                            isChecked={isChecked}
+                            onChange={(e) => toggleSelectedDevice(deviceName, e.target.checked)}
+                            fontFamily="poppins"
+                          >
+                            {deviceName}
+                          </Checkbox>
+                        );
+                      })}
                     </VStack>
                   </VStack>
                 </TabPanel>

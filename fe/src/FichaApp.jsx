@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
-import { Box, Flex, Text, Image, Button, Center } from '@chakra-ui/react';
+import { Box, Text, Image, Button, Center } from '@chakra-ui/react';
 import ConfigurationModal from './components/ConfigurationModal';
 import FichaCard from './components/FichaCard';
 import { loadFichaConfig, saveFichaConfig } from './utils/fichaConfigStorage';
@@ -121,10 +121,6 @@ function FichaApp() {
         ⚙️ Config
       </Button>
 
-      <Flex justifyContent="center" mb={8}>
-        <Image src="/logo.svg" h="50px" />
-      </Flex>
-
       {!currentFicha && !accessDeniedInfo ? (
         // Pantalla en reposo: mientras no hay nadie identificándose (al
         // iniciar, o pasado el tiempo configurado en "Mostrar
@@ -137,13 +133,13 @@ function FichaApp() {
         </Center>
       ) : (
         <Center>
-          <Box w="100%" maxW="480px">
+          <Box w="100%" maxW="680px">
             {accessDeniedInfo && (
-              <Box bg="#E53E3E" color="white" borderRadius={8} p={3} mb={4} textAlign="center">
-                <Text fontWeight={700} fontFamily="poppins">
+              <Box bg="#E53E3E" color="white" borderRadius={10} p={4} mb={4} textAlign="center">
+                <Text fontWeight={700} fontSize={20} fontFamily="poppins">
                   Acceso NO otorgado (DNI {accessDeniedInfo.dni})
                 </Text>
-                <Text fontSize={13} fontFamily="poppins">
+                <Text fontSize={15} fontFamily="poppins">
                   Vencido: {(accessDeniedInfo.expiredFields || []).join(', ')}
                 </Text>
               </Box>

@@ -182,6 +182,18 @@ const routes = (io) => {
 
         const subEvent = getSubEvent(subEventType, cardType);
 
+        // v2: el equipo manda DOS eventos HTTP distintos para una misma
+        // identificacion cuando Remote Verification esta activo - uno con
+        // remoteCheck:true (la pregunta "abro o no?", ya respondida arriba)
+        // y, instantes despues, uno con remoteCheckResult (la confirmacion
+        // de que paso). Los dos traen el mismo subEventType/cardType, asi
+        // que sin este corte se mostraba la ficha en pantalla y se mandaba
+        // el log de entrada/salida DOS VECES por cada acceso. El evento
+        // remoteCheck:true no hace nada mas aca - ya se contesto arriba.
+        if (obj.AccessControllerEvent !== undefined && obj.AccessControllerEvent.remoteCheck === true) {
+          return;
+        }
+
         if (subEvent.length > 0) {
 
           eventDateTimeTemp = obj.dateTime;  //"2024-12-15T21:54:45-03:00"
@@ -222,8 +234,18 @@ const routes = (io) => {
             }
           }
 
+          // Si este evento trae remoteCheckResult (viene de un equipo con
+          // Remote Verification activo), el log de entrada/salida a la
+          // plataforma central se manda solo si el resultado fue "success" -
+          // si fue "failed" no hubo ingreso real y no corresponde loguearlo.
+          // Si no trae remoteCheckResult (equipo sin Remote Verification
+          // configurado), se mantiene el comportamiento de siempre: se
+          // loguea igual.
+          const remoteCheckResult = obj.AccessControllerEvent.remoteCheckResult;
+          const shouldLog = remoteCheckResult === undefined || remoteCheckResult === "success";
+
           await runExclusiveForDevice(deviceName, () =>
-            getUser(dni, plate, deviceName, eventType, io, eventDateTime, subEvent[0].isPanic)
+            getUser(dni, plate, deviceName, eventType, io, eventDateTime, subEvent[0].isPanic, shouldLog)
           );
 
           

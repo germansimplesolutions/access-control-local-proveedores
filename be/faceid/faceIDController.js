@@ -28,7 +28,7 @@ function readImageAsBase64(imagePath) {
   }
 }
 
-const getUser = async (employeeNo, plate, deviceName, eventType, io, eventDateTime, isPanic) => {
+const getUser = async (employeeNo, plate, deviceName, eventType, io, eventDateTime, isPanic, shouldLog = true) => {
   let username,
     password,
     faceIdIp = "";
@@ -146,9 +146,9 @@ const getUser = async (employeeNo, plate, deviceName, eventType, io, eventDateTi
     const photoSource = (process.env.PHOTO_SOURCE || "local").toLowerCase();
 
     if (photoSource === "local") {
-      return getPictureFromLocal(dni, plate, objAccessControlEvent, io, eventDateTime)
+      return getPictureFromLocal(dni, plate, objAccessControlEvent, io, eventDateTime, shouldLog)
     } else {
-      return getPictureFromFaceID(dni, plate, digestRequest, objAccessControlEvent, faceIdIp, io, eventDateTime)
+      return getPictureFromFaceID(dni, plate, digestRequest, objAccessControlEvent, faceIdIp, io, eventDateTime, shouldLog)
     }
 
   } catch (error) {
@@ -326,7 +326,7 @@ const addQrCode = async (digestRequest, device, document, idHash) => {
 */
 
 
-const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlEvent, faceIdIp, io, eventDateTime) => {
+const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlEvent, faceIdIp, io, eventDateTime, shouldLog = true) => {
 
   const host = "http://" + faceIdIp;
   //const dni = objAccessControlEvent.id;
@@ -403,12 +403,17 @@ const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlE
           JSON.stringify(objAccessControlEvent)
         );
         
-        // Send event to AC Central
-        
-        if (objAccessControlEvent.event_type == "ENTRY") {
-          saveEntryLog(objAccessControlEvent.id, objAccessControlEvent.UF, plate, eventDateTime, objAccessControlEvent.id_barrio);
-        } else {
-          saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
+        // Send event to AC Central - solo si corresponde loguear este
+        // evento (ver shouldLog en events.js: el equipo manda un evento
+        // separado con remoteCheckResult "failed" cuando no se abrio, y ahi
+        // no hay que loguear un ingreso/egreso que no ocurrio).
+
+        if (shouldLog) {
+          if (objAccessControlEvent.event_type == "ENTRY") {
+            saveEntryLog(objAccessControlEvent.id, objAccessControlEvent.UF, plate, eventDateTime, objAccessControlEvent.id_barrio);
+          } else {
+            saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
+          }
         }
 
 				// Saves the event in the database
@@ -420,6 +425,29 @@ const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlE
         console.log("getPicture error ", error);
       }
 			
+		} else {
+      // Sin foto/cara enrolada en el equipo (por ejemplo, persona
+      // sincronizada sin foto con SYNC_WITH_PICTURE=0) - antes esto no
+      // hacia nada mas: no se mostraba la ficha en pantalla ni se mandaba
+      // el log de entrada/salida para esta persona. Ahora se muestra/loguea
+      // igual, sin foto (el cuadro de iniciales queda como respaldo en el
+      // front, ver FichaCard.jsx).
+      console.log(`Persona ${dni}: sin foto/cara en el equipo (${status}), se muestra/loguea igual sin foto.`);
+
+      io.sockets.emit(
+        "accessControlEvent",
+        JSON.stringify(objAccessControlEvent)
+      );
+
+      if (shouldLog) {
+        if (objAccessControlEvent.event_type == "ENTRY") {
+          saveEntryLog(objAccessControlEvent.id, objAccessControlEvent.UF, plate, eventDateTime, objAccessControlEvent.id_barrio);
+        } else {
+          saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
+        }
+      }
+
+      return objAccessControlEvent;
 		}
 
   } catch (error) {
@@ -435,7 +463,7 @@ const getPictureFromFaceID = async (dni, plate, digestRequest, objAccessControlE
  * objAccessControlEvent: It is an object of the AccessControlEvent class to complete the value of the image.
 */
 
-const getPictureFromLocal = async (dni, plate, objAccessControlEvent, io, eventDateTime) => {
+const getPictureFromLocal = async (dni, plate, objAccessControlEvent, io, eventDateTime, shouldLog = true) => {
 
   const localImage = readImageAsBase64(`./images/${dni}.jpg`);
 
@@ -453,12 +481,17 @@ const getPictureFromLocal = async (dni, plate, objAccessControlEvent, io, eventD
     JSON.stringify(objAccessControlEvent)
   );
 
-  // Send event to AC Central
+  // Send event to AC Central - solo si corresponde loguear este evento (ver
+  // shouldLog en events.js: el equipo manda un evento separado con
+  // remoteCheckResult "failed" cuando no se abrio, y ahi no hay que loguear
+  // un ingreso/egreso que no ocurrio).
 
-  if (objAccessControlEvent.event_type == "ENTRY") {
-    saveEntryLog(objAccessControlEvent.id, objAccessControlEvent.UF, plate, eventDateTime, objAccessControlEvent.id_barrio);
-  } else {
-    saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
+  if (shouldLog) {
+    if (objAccessControlEvent.event_type == "ENTRY") {
+      saveEntryLog(objAccessControlEvent.id, objAccessControlEvent.UF, plate, eventDateTime, objAccessControlEvent.id_barrio);
+    } else {
+      saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
+    }
   }
 
     // Saves the event in the database

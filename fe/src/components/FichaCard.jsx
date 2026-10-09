@@ -12,6 +12,16 @@ const TYPE_LABELS = {
 
 const typeLabel = (type) => TYPE_LABELS[(type || '').toLowerCase()] || type || '—';
 
+// El backend manda las fechas en formato ISO (YYYY-MM-DD, como vienen de la
+// plataforma central). Acá se muestran como DD/MM/AAAA.
+const formatDate = (dateStr) => {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const [year, month, day] = parts;
+  return `${day}/${month}/${year}`;
+};
+
 // Muestra un dato de la ficha (label + valor), ocultando la fila si el
 // valor viene vacío.
 const Field = ({ label, value }) => {
@@ -31,13 +41,13 @@ Field.propTypes = {
 
 // Una fila de vencimiento, con color segun este vigente o vencido.
 const ExpirationRow = ({ label, date, expired }) => (
-  <Flex justifyContent="space-between" alignItems="center" py={1}>
-    <Text fontSize={13} fontFamily="poppins">{label}</Text>
-    <Flex alignItems="center" gap={2}>
-      <Text fontSize={12} color="#536d79" fontFamily="poppins">
-        {date || 'Sin dato'}
+  <Flex justifyContent="space-between" alignItems="center" py={2}>
+    <Text fontSize={15} fontFamily="poppins">{label}</Text>
+    <Flex alignItems="center" gap={3} flexShrink={0} whiteSpace="nowrap">
+      <Text fontSize={14} color="#536d79" fontFamily="poppins" whiteSpace="nowrap">
+        {formatDate(date) || 'Sin dato'}
       </Text>
-      <Badge colorScheme={expired ? 'red' : date ? 'green' : 'gray'}>
+      <Badge colorScheme={expired ? 'red' : date ? 'green' : 'gray'} fontSize={12} px={2} py={1}>
         {expired ? 'Vencido' : date ? 'Vigente' : 'Sin dato'}
       </Badge>
     </Flex>
@@ -72,35 +82,38 @@ const FichaCard = ({ ficha, photo }) => {
   const headerSubtitle = [individual.category_id, individual.company].filter(Boolean).join(' - ');
 
   return (
-    <Box bg="white" borderRadius={12} p={6} boxShadow="md" border={hasExpired ? '3px solid #E53E3E' : '1px solid #E2E8F0'}>
+    <Box bg="white" borderRadius={16} p={8} boxShadow="lg" border={hasExpired ? '3px solid #E53E3E' : '1px solid #E2E8F0'}>
       {hasExpired && (
-        <Box bg="#E53E3E" color="white" borderRadius={8} p={2} mb={4} textAlign="center">
-          <Text fontWeight={700} fontFamily="poppins">⚠ Tiene documentación o autorización vencida</Text>
+        <Box bg="#E53E3E" color="white" borderRadius={8} p={3} mb={4} textAlign="center">
+          <Text fontWeight={700} fontSize={16} fontFamily="poppins">⚠ Tiene documentación o autorización vencida</Text>
         </Box>
       )}
 
-      <Flex gap={4} alignItems="flex-start" mb={4}>
+      <Flex gap={5} alignItems="flex-start" mb={5}>
         {photo ? (
           // Foto de la persona identificada (viene en el propio evento
           // accessControlEvent - la misma que el equipo o la carpeta local
           // le dieron al backend segun PHOTO_SOURCE, ver faceIDController.js).
+          // Si no hay foto (persona sin foto en el equipo o sin foto
+          // sincronizada), se muestra el cuadro de iniciales igual - la
+          // ficha siempre se tiene que mostrar, tenga o no foto.
           <Image
             src={`data:image/jpeg;base64,${photo}`}
             alt={`${individual.name || ''} ${individual.lastname || ''}`}
-            w="100px"
-            h="100px"
-            borderRadius={10}
+            w="130px"
+            h="130px"
+            borderRadius={12}
             objectFit="cover"
             flexShrink={0}
           />
         ) : (
           <Box
-            w="100px"
-            h="100px"
-            borderRadius={10}
+            w="130px"
+            h="130px"
+            borderRadius={12}
             bg="#035187"
             color="white"
-            fontSize={28}
+            fontSize={36}
             fontWeight={700}
             display="flex"
             alignItems="center"
@@ -112,11 +125,11 @@ const FichaCard = ({ ficha, photo }) => {
           </Box>
         )}
         <Box>
-          <Text fontSize={22} fontWeight={600} fontFamily="poppins">
+          <Text fontSize={28} fontWeight={600} fontFamily="poppins">
             {individual.name} {individual.lastname}
           </Text>
           {headerSubtitle && (
-            <Text fontSize={14} color="#536d79" fontFamily="poppins">
+            <Text fontSize={17} color="#536d79" fontFamily="poppins">
               {headerSubtitle}
             </Text>
           )}
@@ -135,7 +148,7 @@ const FichaCard = ({ ficha, photo }) => {
 
       <Divider mb={2} />
 
-      <Text fontSize={14} fontWeight={600} mb={2} fontFamily="poppins">
+      <Text fontSize={16} fontWeight={600} mb={2} fontFamily="poppins">
         Vencimientos
       </Text>
       <VStack spacing={0} align="stretch">
@@ -146,43 +159,51 @@ const FichaCard = ({ ficha, photo }) => {
 
       <Divider my={4} />
 
-      <Text fontSize={14} fontWeight={600} mb={2} fontFamily="poppins">
+      <Text fontSize={16} fontWeight={600} mb={2} fontFamily="poppins">
         Autorizaciones de Ingreso
       </Text>
       {(!authorizations || authorizations.length === 0) ? (
-        <Text fontSize={13} color="#536d79" fontFamily="poppins">Sin autorizaciones registradas.</Text>
+        <Text fontSize={14} color="#536d79" fontFamily="poppins">Sin autorizaciones registradas.</Text>
       ) : (
-        <Table size="sm" variant="simple">
-          <Thead>
-            <Tr>
-              <Th pl={0} fontFamily="poppins">Lote</Th>
-              <Th fontFamily="poppins">UF</Th>
-              <Th fontFamily="poppins">Tipo</Th>
-              <Th fontFamily="poppins">Categoría</Th>
-              <Th pr={0} textAlign="right" fontFamily="poppins">Autorizado Hasta</Th>
-            </Tr>
-          </Thead>
-          <Tbody>
-            {authorizations.map((auth) => (
-              <Tr key={auth.id}>
-                <Td pl={0} fontFamily="poppins" fontSize={13}>{auth.uf}</Td>
-                <Td fontFamily="poppins" fontSize={13}>{auth.uf}</Td>
-                <Td fontFamily="poppins" fontSize={13}>{typeLabel(auth.type)}</Td>
-                <Td fontFamily="poppins" fontSize={13}>{auth.category}</Td>
-                <Td pr={0} textAlign="right">
-                  <Flex justifyContent="flex-end" alignItems="center" gap={2}>
-                    <Text fontSize={12} color="#536d79" fontFamily="poppins">
-                      {auth.authDateTo || 'Sin vencimiento'}
-                    </Text>
-                    <Badge colorScheme={auth.expired ? 'red' : 'green'}>
-                      {auth.expired ? 'Vencido' : 'Vigente'}
-                    </Badge>
-                  </Flex>
-                </Td>
+        <Box overflowX="auto">
+          <Table size="sm" variant="simple">
+            <Thead>
+              <Tr>
+                <Th pl={0} fontFamily="poppins" fontSize={12}>Lote</Th>
+                <Th fontFamily="poppins" fontSize={12}>UF</Th>
+                <Th fontFamily="poppins" fontSize={12}>Tipo</Th>
+                <Th fontFamily="poppins" fontSize={12}>Categoría</Th>
+                <Th pr={0} textAlign="right" fontFamily="poppins" fontSize={12} whiteSpace="nowrap">Autorizado Hasta</Th>
               </Tr>
-            ))}
-          </Tbody>
-        </Table>
+            </Thead>
+            <Tbody>
+              {authorizations.map((auth) => (
+                <Tr key={auth.id}>
+                  <Td pl={0} fontFamily="poppins" fontSize={14}>{auth.uf}</Td>
+                  <Td fontFamily="poppins" fontSize={14}>{auth.uf}</Td>
+                  <Td fontFamily="poppins" fontSize={14}>{typeLabel(auth.type)}</Td>
+                  <Td fontFamily="poppins" fontSize={14}>{auth.category}</Td>
+                  <Td pr={0} textAlign="right">
+                    <Flex justifyContent="flex-end" alignItems="center" gap={2} whiteSpace="nowrap">
+                      <Text fontSize={13} color="#536d79" fontFamily="poppins" whiteSpace="nowrap">
+                        {formatDate(auth.authDateTo) || 'Sin vencimiento'}
+                      </Text>
+                      <Badge colorScheme={auth.expired ? 'red' : 'green'} fontSize={12} px={2} py={1} flexShrink={0}>
+                        {auth.expired ? 'Vencido' : 'Vigente'}
+                      </Badge>
+                    </Flex>
+                  </Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+        </Box>
+      )}
+
+      {!hasExpired && (
+        <Box mt={5} bg="#16A34A" color="white" borderRadius={10} p={3} textAlign="center">
+          <Text fontWeight={700} fontSize={18} fontFamily="poppins">✓ INGRESO OK</Text>
+        </Box>
       )}
     </Box>
   );
