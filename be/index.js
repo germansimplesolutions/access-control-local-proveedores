@@ -17,7 +17,18 @@ const server = app.listen(listenPort, function () {
 });
 
 // Socket setup & pass server
-const io = new Server(server);
+// v2: sin esto, el socket.io (a diferencia de lo que dice el comentario de
+// mas abajo sobre las rutas de Express) SI rechaza las conexiones
+// cross-origin por defecto desde socket.io v3 - el handshake inicial usa
+// HTTP normal (polling) antes de subir a WebSocket, y esta sujeto a CORS
+// igual que cualquier fetch/XHR. fe y be corren en puertos distintos
+// (8080 y 3888), asi que son origenes distintos para el navegador sea
+// cual sea el dispositivo (PC, celular, tablet) - sin esta opcion el
+// evento "accessControlEvent" nunca llega, aunque la pantalla/fondo se
+// vea bien (eso lo sirve Vite, no pasa por el socket).
+const io = new Server(server, {
+  cors: { origin: "*" },
+});
 
 app.use(express.json());
 
