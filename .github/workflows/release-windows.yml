@@ -1,0 +1,68 @@
+# Arma el instalador de "Face ID Proveedores" en Windows y publica el release.
+# Se dispara al subir a main un cambio en windows-app/package.json; solo
+# publica si todavia no existe un release para esa "version".
+name: Release Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - windows-app/package.json
+      - .github/workflows/release-windows.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: windows-app
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Ver si la version ya esta publicada
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION ya existe: no se publica nada."
+          else
+            echo "publicar=si" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Armar el instalador
+        if: steps.version.outputs.publicar == 'si'
+        run: |
+          npm ci
+          npm run dist:win
+
+      - name: Publicar el release
+        if: steps.version.outputs.publicar == 'si'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd dist-installer
+          gh release create "v$VERSION" \
+            "Face-ID-Proveedores-Setup-$VERSION.exe" \
+            "Face-ID-Proveedores-Setup-$VERSION.exe.blockmap" \
+            latest.yml \
+            --target "$GITHUB_SHA" \
+            --title "Face ID Proveedores $VERSION" \
+            --generate-notes \
+            --latest

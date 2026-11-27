@@ -20,11 +20,10 @@ el `.exe`, el `.blockmap` y `latest.yml`. `backend/` se arma solo a partir de
 
 ## Publicar una actualización
 
-1. Subir el número de `version` en `windows-app/package.json` (ej. 1.0.1).
-2. `npm run dist:win`.
-3. En GitHub: Releases > Draft a new release > tag `v1.0.1` > adjuntar los
-   tres archivos de `dist-installer/` (`.exe`, `.exe.blockmap`, `latest.yml`)
-   > Publish release (no marcar "pre-release").
+Subir a `main` el cambio junto con un número de `version` nuevo en
+`windows-app/package.json` (ej. 1.0.1). GitHub Actions
+(`.github/workflows/release-windows.yml`) arma el instalador en Windows y
+publica el release `vX.Y.Z`. Si esa versión ya existe, no publica nada.
 
 Cada PC busca al arrancar y cada hora, descarga sola e instala cuando pasan
 2 minutos sin ingresos.
