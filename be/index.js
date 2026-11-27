@@ -7,6 +7,56 @@ import { adminRouter } from "./admin/adminRoutes.js";
 import { databaseRouter } from "./database/databaseRoutes.js";
 import fs from "fs";
 import moment from "moment";
+import path from "path";
+import { fileURLToPath } from "url";
+import { push as pushLog } from "./admin/logBuffer.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Todo lo que el backend ya imprimía con console.log/warn/error/info queda
+// IGUAL en la consola de siempre (docker logs sigue funcionando exactamente
+// igual que antes), y ADEMÁS se guarda en el buffer en memoria que sirve la
+// pestaña "Logs" del panel de admin (ver admin/logBuffer.js y
+// admin/adminRoutes.js). No cambia ningún console.log existente en el resto
+// del código - esto solo intercepta las 4 funciones una vez, acá.
+const originalConsole = {
+  log: console.log.bind(console),
+  info: console.info.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+};
+
+function formatLogArgs(args) {
+  return args
+    .map((a) => {
+      if (typeof a === "string") return a;
+      if (a instanceof Error) return a.stack || a.message;
+      try {
+        return JSON.stringify(a);
+      } catch (err) {
+        return String(a);
+      }
+    })
+    .join(" ");
+}
+
+console.log = (...args) => {
+  originalConsole.log(...args);
+  pushLog("log", formatLogArgs(args));
+};
+console.info = (...args) => {
+  originalConsole.info(...args);
+  pushLog("info", formatLogArgs(args));
+};
+console.warn = (...args) => {
+  originalConsole.warn(...args);
+  pushLog("warn", formatLogArgs(args));
+};
+console.error = (...args) => {
+  originalConsole.error(...args);
+  pushLog("error", formatLogArgs(args));
+};
+
 
 let listenPort = process.env.PORT;
 
@@ -46,6 +96,15 @@ app.use((req, res, next) => {
 app.use("/admin", adminRouter);
 app.use(databaseRouter);
 app.use(routes(io));
+
+// Sirve el build de produccion del front SOLO si existe "fe-dist" (app de
+// Windows). En Docker esa carpeta no existe y no cambia nada.
+const FRONTEND_DIST_PATH = process.env.FRONTEND_DIST_PATH || path.join(__dirname, "fe-dist");
+if (fs.existsSync(FRONTEND_DIST_PATH)) {
+  console.log("Sirviendo el front empaquetado desde " + FRONTEND_DIST_PATH);
+  app.use(express.static(FRONTEND_DIST_PATH));
+  app.get("/ficha", (req, res) => res.sendFile("index.html", { root: FRONTEND_DIST_PATH }));
+}
 
 const onConnection = (socket) => {
   console.info(`Client connected [id=${socket.id}]`);

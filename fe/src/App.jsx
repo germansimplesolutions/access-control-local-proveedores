@@ -7,7 +7,7 @@ import PanicAlertModal from './components/PanicAlertModal';
 import ConfigurationModal from './components/ConfigurationModal';
 import { loadConfig, saveConfig } from './utils/configStorage';
 
-const socket = io.connect(import.meta.env.VITE_HOST);
+const socket = io.connect(import.meta.env.VITE_HOST || window.location.origin);
 
 // Creamos una instancia de Audio para el sonido de alerta
 const alertSound = new Audio('/sound/alarm.mp3');

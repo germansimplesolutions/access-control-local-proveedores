@@ -5,8 +5,8 @@ import ConfigurationModal from './components/ConfigurationModal';
 import FichaCard from './components/FichaCard';
 import { loadFichaConfig, saveFichaConfig } from './utils/fichaConfigStorage';
 
-const socket = io.connect(import.meta.env.VITE_HOST);
-const API_BASE = import.meta.env.VITE_HOST;
+const API_BASE = import.meta.env.VITE_HOST || window.location.origin;
+const socket = io.connect(API_BASE);
 
 function FichaApp() {
   const [config, setConfig] = useState(loadFichaConfig());

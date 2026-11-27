@@ -59,77 +59,79 @@ function hasValidAuthorization(person) {
   return list.some((auth) => !isAuthExpired(auth));
 }
 
-// Devuelve la lista de cosas vencidas en formato legible, por ejemplo:
-// ["ART", "Seguro del vehiculo (AA123BB)"]. Incluye tanto documentacion
-// personal vencida como el caso de que NINGUNA autorizacion de ingreso de
-// la persona este vigente (antes esto ultimo no se chequeaba en absoluto -
-// una persona con documentos al dia pero autorizacion ya vencida igual
-// conseguia que se abriera la puerta).
-// options.excludeKeys: claves de EXPIRATION_FIELDS (ej. "art_date") que no
-// se chequean acá - pensado para cuando Taker está activo y reemplaza esa
-// validación puntual por su propia consulta de cobertura (ver
-// ../taker/takerClient.js y sus usos en faceIDController.js/databaseRoutes.js).
-function getExpiredFields(person, options = {}) {
-  const { excludeKeys = [] } = options;
-  const expired = [];
-  const individual = person?.individual;
+// --- Vencimientos obligatorios u opcionales (panel /admin) ---
+// Obligatorio: si esta vencido, o no tiene fecha cargada, NO abre.
+// Excepcion: registro de conducir sin fecha cargada abre igual (solo
+// bloquea si esta cargado y vencido).
+// Opcional: nunca bloquea, solo se muestra en la ficha.
+// Sin configurar = obligatorio.
+const REQUIRED_ENV_KEYS = {
+  art_date: "EXP_ART_REQUIRED",
+  cert_penalty_date: "EXP_CERT_REQUIRED",
+  drive_license_exp_date: "EXP_LICENSE_REQUIRED",
+  insurance_exp_date: "EXP_INSURANCE_REQUIRED",
+};
 
-  if (individual) {
-    for (const field of EXPIRATION_FIELDS) {
-      if (excludeKeys.includes(field.key)) continue;
-      if (isExpired(individual[field.key])) {
-        expired.push(field.label);
-      }
-    }
-
-    if (Array.isArray(individual.cars)) {
-      for (const car of individual.cars) {
-        if (isExpired(car.insurance_exp_date)) {
-          expired.push(`Seguro del vehiculo${car.plate ? " (" + car.plate + ")" : ""}`);
-        }
-      }
-    }
-  }
-
-  if (!hasValidAuthorization(person)) {
-    expired.push("Autorización de ingreso");
-  }
-
-  return expired;
+function isRequired(key) {
+  return process.env[REQUIRED_ENV_KEYS[key]] !== "0";
 }
 
-// Devuelve el detalle de cada item chequeado (vigente o vencido, con su
-// fecha), pensado para mostrar en la ficha del front - no solo la lista de
-// lo vencido, sino el estado de TODO lo que se chequea.
+function hasDate(dateStr) {
+  return Boolean(dateStr) && !isNaN(new Date(dateStr + "T00:00:00").getTime());
+}
+
+function buildDetail(key, label, date, { blocksWhenMissing = true } = {}) {
+  const missing = !hasDate(date);
+  const expired = !missing && isExpired(date);
+  const required = isRequired(key);
+  const blocking = required && (expired || (missing && blocksWhenMissing));
+  return { label, date: missing ? null : date, missing, expired, required, blocking };
+}
+
+// Detalle de cada item chequeado, para la ficha y para decidir la apertura.
+// options.excludeKeys: claves que no se chequean aca - pensado para cuando
+// Taker esta activo y reemplaza esa validacion por su propia consulta (ver
+// ../taker/takerClient.js y sus usos en faceIDController.js/databaseRoutes.js).
 function getExpirationDetails(person, options = {}) {
   const { excludeKeys = [] } = options;
-  const individual = person?.individual;
+  const individual = person?.individual || {};
   const details = [];
-
-  if (!individual) return details;
 
   for (const field of EXPIRATION_FIELDS) {
     if (excludeKeys.includes(field.key)) continue;
-    const date = individual[field.key] || null;
-    details.push({
-      label: field.label,
-      date,
-      expired: isExpired(date),
-    });
+    details.push(buildDetail(field.key, field.label, individual[field.key], {
+      blocksWhenMissing: field.key !== "drive_license_exp_date",
+    }));
   }
 
-  if (Array.isArray(individual.cars)) {
-    for (const car of individual.cars) {
-      const date = car.insurance_exp_date || null;
-      details.push({
-        label: `Seguro del vehiculo${car.plate ? " (" + car.plate + ")" : ""}`,
-        date,
-        expired: isExpired(date),
-      });
-    }
+  const cars = Array.isArray(individual.cars) ? individual.cars : [];
+
+  for (const car of cars) {
+    const label = `Seguro del vehiculo${car.plate ? " (" + car.plate + ")" : ""}`;
+    details.push(buildDetail("insurance_exp_date", label, car.insurance_exp_date));
+  }
+
+  // Sin vehiculo cargado no hay seguro que exigir: se muestra "Sin datos"
+  // pero no bloquea (si no, nadie que entre a pie podria ingresar).
+  if (cars.length === 0) {
+    details.push(buildDetail("insurance_exp_date", "Seguro del vehiculo", null, { blocksWhenMissing: false }));
   }
 
   return details;
 }
 
-export { EXPIRATION_FIELDS, isExpired, getExpiredFields, getExpirationDetails, isAuthExpired, getAuthorizationsList, hasValidAuthorization };
+// Motivos por los que NO se abre la puerta. La autorizacion de ingreso es
+// siempre obligatoria.
+function getBlockingReasons(person, options = {}) {
+  const reasons = getExpirationDetails(person, options)
+    .filter((item) => item.blocking)
+    .map((item) => (item.missing ? `${item.label} (sin datos)` : item.label));
+
+  if (!hasValidAuthorization(person)) {
+    reasons.push("Autorización de ingreso");
+  }
+
+  return reasons;
+}
+
+export { EXPIRATION_FIELDS, isExpired, getBlockingReasons, getExpirationDetails, isAuthExpired, getAuthorizationsList, hasValidAuthorization };

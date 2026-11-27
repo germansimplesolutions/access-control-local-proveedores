@@ -1,4 +1,5 @@
 import fs from "fs";
+import path from "path";
 import dotenv from "dotenv";
 import { ENV_FILE_PATH, reloadConfig } from "../loadEnv.js";
 import { startSync } from "../sync/sync.js";
@@ -48,8 +49,54 @@ const GLOBAL_FIELDS = [
   "TAKER_ACCESO_URL",
   "TAKER_ID",
   "TAKER_USER",
-  "TAKER_PASS"
+  "TAKER_PASS",
+  "EXP_ART_REQUIRED",
+  "EXP_CERT_REQUIRED",
+  "EXP_LICENSE_REQUIRED",
+  "EXP_INSURANCE_REQUIRED"
 ];
+
+// Escribe el archivo de forma más tolerante a Windows: a veces el archivo
+// queda marcado "solo lectura" (por ejemplo si se copió desde el
+// .env-example empaquetado en la instalación) o momentáneamente bloqueado
+// por el antivirus mientras lo escanea, y un fs.writeFileSync directo tira
+// EPERM en esos casos. Esto se asegura de que el archivo sea escribible
+// antes de tocarlo, y escribe a un archivo temporal + rename (además de ser
+// más tolerante a bloqueos transitorios, el rename es atómico: nunca queda
+// el archivo a medio escribir si algo falla a mitad de camino). En
+// Linux/Docker este cambio no cambia nada en la práctica.
+function writeFileRobust(filePath, content) {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.chmodSync(filePath, 0o666);
+    }
+  } catch (err) {
+    // best-effort - seguimos igual aunque esto falle
+  }
+
+  const dir = path.dirname(filePath);
+  const tmpPath = path.join(dir, `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`);
+
+  fs.writeFileSync(tmpPath, content);
+
+  try {
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    // Reintenta una vez más por si el bloqueo era transitorio (ej:
+    // antivirus escaneando el archivo en ese instante).
+    try {
+      fs.chmodSync(filePath, 0o666);
+      fs.renameSync(tmpPath, filePath);
+    } catch (err2) {
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch (cleanupErr) {
+        // nada más para hacer
+      }
+      throw err2;
+    }
+  }
+}
 
 function readRawEnv() {
   if (!fs.existsSync(ENV_FILE_PATH)) {
@@ -211,6 +258,12 @@ function validateConfig(config) {
     errors.push('La opción de fotos al sincronizar tiene que ser "0" o "1".');
   }
 
+  ["EXP_ART_REQUIRED", "EXP_CERT_REQUIRED", "EXP_LICENSE_REQUIRED", "EXP_INSURANCE_REQUIRED"].forEach((key) => {
+    if (!["", "0", "1"].includes(config.global[key] || "")) {
+      errors.push(`La opción "${key}" tiene que ser "0" o "1".`);
+    }
+  });
+
   const takerEnabled = config.global.TAKER_ENABLED || "0";
   if (!["0", "1"].includes(takerEnabled)) {
     errors.push('La opción de Taker activado tiene que ser "0" o "1".');
@@ -239,7 +292,7 @@ function saveConfig(config) {
   const text = structuredConfigToEnvText(config);
 
   try {
-    fs.writeFileSync(ENV_FILE_PATH, text);
+    writeFileRobust(ENV_FILE_PATH, text);
   } catch (error) {
     return { ok: false, errors: [`No se pudo escribir ${ENV_FILE_PATH}: ${error.message}`] };
   }
@@ -319,7 +372,7 @@ function saveFeConfig(config) {
   }
 
   try {
-    fs.writeFileSync(ENV_FE_FILE_PATH, out);
+    writeFileRobust(ENV_FE_FILE_PATH, out);
   } catch (error) {
     return { ok: false, errors: [`No se pudo escribir ${ENV_FE_FILE_PATH}: ${error.message}`] };
   }

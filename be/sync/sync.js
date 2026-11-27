@@ -458,6 +458,45 @@ const saveExitLog = async (document, eventDateTime, id_barrio) => {
 
 }
 
+// Aviso de ingreso/egreso a los usuarios (no registra movimiento, eso lo
+// hacen saveEntryLog/saveExitLog). body: { name, lastname, timestamp
+// "YYYY-MM-DD HH:mm", category, type "ENTRY"|"EXIT", ufs [] }
+const sendNotify = async (body, id_barrio) => {
+
+  try {
+
+    const url_api = process.env.URL_API;
+    const token = await getToken(id_barrio);
+
+    if (token) {
+
+      const url = url_api + "/accesscontrol/notify";
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'idBarrio': id_barrio,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      // La documentacion no define cuerpo de respuesta: se loguea tal cual.
+      const text = await response.text();
+      console.log(`Notify ${body.type} response: ${response.status} ${text}`);
+
+      return response.ok;
+    }
+
+    return false;
+
+  } catch (error) {
+    console.error("Error sending notify: ", error);
+    return false;
+  }
+}
+
 const addCar = async (document, plate, id_barrio) => {
   
   try {
@@ -532,4 +571,4 @@ const startSync = () => {
   }
 }
 
-export {getAuthorizations, saveEntryLog, saveExitLog, sendAck, startSync};
+export {getAuthorizations, saveEntryLog, saveExitLog, sendAck, sendNotify, startSync};

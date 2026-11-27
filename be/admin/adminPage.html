@@ -90,12 +90,46 @@
   .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .checkbox-row { display: flex; align-items: center; gap: 8px; }
   .checkbox-row input { width: auto; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); max-width: 900px; }
+  .tab-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  #logsConsole {
+    background: #0a0b0d;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    height: 460px;
+    overflow-y: auto;
+    font-size: 12px;
+    line-height: 1.6;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  .log-line { white-space: pre-wrap; word-break: break-all; }
+  .log-time { color: var(--muted); }
 </style>
 </head>
 <body>
 
 <h1>Configuración del control de acceso</h1>
 <div class="subtitle">Los cambios se aplican al instante, sin reiniciar el contenedor (salvo el puerto, que sí necesita un reinicio).</div>
+
+<div class="tabs">
+  <button type="button" class="tab-btn active" data-tab="config">Configuración</button>
+  <button type="button" class="tab-btn" data-tab="logs">Logs</button>
+</div>
+
+<div id="tab-config">
 
 <div id="loading">Cargando...</div>
 <div id="unavailable" style="display:none" class="card"></div>
@@ -187,6 +221,41 @@
   </div>
 
   <div class="card">
+    <h2>Vencimientos</h2>
+    <div class="grid">
+      <div class="field">
+        <label>ART</label>
+        <select data-global="EXP_ART_REQUIRED" data-required="1">
+          <option value="1">Obligatorio</option>
+          <option value="0">Opcional (solo avisa)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Certificado de reincidencia</label>
+        <select data-global="EXP_CERT_REQUIRED" data-required="1">
+          <option value="1">Obligatorio</option>
+          <option value="0">Opcional (solo avisa)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Registro de conducir</label>
+        <select data-global="EXP_LICENSE_REQUIRED" data-required="1">
+          <option value="1">Obligatorio</option>
+          <option value="0">Opcional (solo avisa)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Seguro del vehículo</label>
+        <select data-global="EXP_INSURANCE_REQUIRED" data-required="1">
+          <option value="1">Obligatorio</option>
+          <option value="0">Opcional (solo avisa)</option>
+        </select>
+      </div>
+    </div>
+    <div class="hint">Obligatorio: si está vencido o sin datos, la puerta no abre (el registro de conducir sin datos abre igual; el seguro solo se exige si la persona tiene un vehículo cargado). Opcional: la ficha muestra que está vencido, pero abre igual. La autorización de ingreso es siempre obligatoria. Con Taker activado, ART y reincidencia los valida Taker.</div>
+  </div>
+
+  <div class="card">
     <h2>Taker (verificación de cobertura externa)</h2>
     <div class="field" style="max-width:420px">
       <label>Taker</label>
@@ -254,6 +323,20 @@
     <span id="feStatus"></span>
   </div>
 </form>
+
+</div>
+
+<div id="tab-logs" style="display:none">
+  <div class="card" style="max-width: 1100px">
+    <h2>Logs en vivo</h2>
+    <div class="toolbar" style="margin-top:0; margin-bottom:10px; max-width:none">
+      <button type="button" class="add-btn" id="clearLogsBtn">Limpiar pantalla</button>
+      <span id="logsStatus" class="hint"></span>
+    </div>
+    <div id="logsConsole"></div>
+    <div class="hint" style="margin-top:8px">Muestra lo que el backend va imprimiendo (lo mismo que antes se veía con "docker logs"). Es un historial corto en memoria: se pierde si se reinicia la app/el contenedor.</div>
+  </div>
+</div>
 
 <script>
 const GLOBAL_FIELD_DEFS = [
@@ -339,6 +422,13 @@ function render() {
   renderSyncTypes();
   renderSyncWithPicture();
   renderTaker();
+  renderRequiredExpirations();
+}
+
+function renderRequiredExpirations() {
+  document.querySelectorAll("[data-required]").forEach(el => {
+    el.value = state.global[el.dataset.global] === "0" ? "0" : "1";
+  });
 }
 
 function renderGlobal() {
@@ -642,6 +732,106 @@ document.getElementById("feConfigForm").addEventListener("submit", async (e) => 
     statusEl.className = "err";
     statusEl.textContent = "No se pudo guardar:\n" + (data.errors || []).join("\n");
   }
+});
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-config").style.display = btn.dataset.tab === "config" ? "block" : "none";
+    document.getElementById("tab-logs").style.display = btn.dataset.tab === "logs" ? "block" : "none";
+    if (btn.dataset.tab === "logs") startLogsIfNeeded();
+  });
+});
+
+let logsStarted = false;
+let logsEventSource = null;
+
+const LOG_COLORS = { error: "#f87171", warn: "#fbbf24", info: "#6ee7b7", log: "#e8e8ea" };
+
+function escapeHtml(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function appendLogLine(entry) {
+  const consoleEl = document.getElementById("logsConsole");
+  const atBottom = consoleEl.scrollTop + consoleEl.clientHeight >= consoleEl.scrollHeight - 10;
+
+  const line = document.createElement("div");
+  line.className = "log-line";
+  // entry.ts viene en UTC (new Date().toISOString() del backend) - lo
+  // pasamos a la hora local de la PC en vez de mostrar el string UTC tal
+  // cual, que quedaba ~3hs adelantado en Argentina.
+  const time = entry.ts ? new Date(entry.ts).toLocaleTimeString("es-AR", { hour12: false }) : "";
+  const color = LOG_COLORS[entry.level] || LOG_COLORS.log;
+  line.innerHTML = `<span class="log-time">${time}</span> <span style="color:${color}">${escapeHtml(entry.text)}</span>`;
+  consoleEl.appendChild(line);
+
+  // Si tenía más de 1000 líneas en pantalla, vamos borrando las más viejas
+  // (el buffer del backend igual guarda hasta 1000 - esto es solo para no
+  // dejar crecer el DOM para siempre si se deja la pestaña abierta mucho
+  // tiempo).
+  while (consoleEl.children.length > 1000) {
+    consoleEl.removeChild(consoleEl.firstChild);
+  }
+
+  if (atBottom) consoleEl.scrollTop = consoleEl.scrollHeight;
+}
+
+async function startLogsIfNeeded() {
+  if (logsStarted) return;
+  logsStarted = true;
+
+  const statusEl = document.getElementById("logsStatus");
+  statusEl.textContent = "Cargando historial...";
+
+  try {
+    const res = await fetch("/admin/api/logs");
+    if (res.status === 401) {
+      window.location.href = "/admin/login";
+      return;
+    }
+    const data = await res.json();
+    (data.lines || []).forEach(appendLogLine);
+    const consoleEl = document.getElementById("logsConsole");
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  } catch (err) {
+    statusEl.textContent = "No se pudo cargar el historial.";
+  }
+
+  logsEventSource = new EventSource("/admin/api/logs/stream");
+
+  logsEventSource.onopen = () => {
+    statusEl.textContent = "En vivo";
+  };
+
+  logsEventSource.onmessage = (ev) => {
+    try {
+      appendLogLine(JSON.parse(ev.data));
+    } catch (err) {
+      // ignorar línea mal formada
+    }
+  };
+
+  logsEventSource.onerror = async () => {
+    statusEl.textContent = "Reconectando...";
+    // Si lo que pasó es que se venció la sesión, el navegador va a seguir
+    // reintentando la conexión del EventSource en vano - esto lo detecta y
+    // manda al login.
+    try {
+      const check = await fetch("/admin/api/logs");
+      if (check.status === 401) {
+        logsEventSource.close();
+        window.location.href = "/admin/login";
+      }
+    } catch (err) {
+      // sin conexión por ahora, EventSource va a seguir reintentando solo
+    }
+  };
+}
+
+document.getElementById("clearLogsBtn").addEventListener("click", () => {
+  document.getElementById("logsConsole").innerHTML = "";
 });
 
 load();

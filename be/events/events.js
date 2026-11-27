@@ -151,6 +151,12 @@ const routes = (io) => {
           respondToRemoteCheck(rcDni, rcDeviceName, rcSerialNo, io);
         }
 
+        // Ultimo ingreso real: la app de Windows espera un rato sin movimiento
+        // antes de reiniciarse para instalar una actualizacion.
+        if (obj.AccessControllerEvent?.employeeNoString) {
+          globalThis.lastAccessEventAt = Date.now();
+        }
+
         res.end("ok");
 
         // Eliminar el archivo temporal que subió multer (si vino una foto

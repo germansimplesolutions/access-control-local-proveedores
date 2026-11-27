@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getPersonByDocument, getAllPersons } from "./personDatabase.js";
-import { getExpirationDetails, getExpiredFields, getAuthorizationsList } from "./expirations.js";
+import { getExpirationDetails, getBlockingReasons, getAuthorizationsList, hasValidAuthorization } from "./expirations.js";
 import { gates } from "../loadEnv.js";
 import { getTakerConfig, checkCobertura } from "../taker/takerClient.js";
 
@@ -44,7 +44,7 @@ router.get("/api/ficha/:document", async (req, res) => {
   }
 
   const expirationDetails = getExpirationDetails(person, { excludeKeys });
-  const expiredFields = getExpiredFields(person, { excludeKeys });
+  const expiredFields = getBlockingReasons(person, { excludeKeys });
   const authorizations = getAuthorizationsList(person);
 
   res.json({
@@ -52,7 +52,10 @@ router.get("/api/ficha/:document", async (req, res) => {
     person,
     expirationDetails,
     authorizations,
-    hasExpired: expiredFields.length > 0 || Boolean(taker && !taker.ok),
+    // blocked: no se abre la puerta. hasExpired: hay algo vencido (aunque
+    // sea opcional y abra igual).
+    blocked: expiredFields.length > 0 || Boolean(taker && !taker.ok),
+    hasExpired: expirationDetails.some((item) => item.expired),
     expiredFields,
     taker,
   });
@@ -70,7 +73,7 @@ router.get("/api/ficha", (req, res) => {
     category: person?.individual?.category_id,
     company: person?.individual?.company,
     authorizationsCount: Object.keys(person?.authorizations || {}).length,
-    hasExpired: getExpiredFields(person).length > 0,
+    hasExpired: getExpirationDetails(person).some((item) => item.expired) || !hasValidAuthorization(person),
   }));
 
   res.json({ persons: summary });

@@ -39,25 +39,33 @@ Field.propTypes = {
   value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };
 
-// Una fila de vencimiento, con color segun este vigente o vencido.
-const ExpirationRow = ({ label, date, expired }) => (
-  <Flex justifyContent="space-between" alignItems="center" py={2}>
-    <Text fontSize={15} fontFamily="poppins">{label}</Text>
-    <Flex alignItems="center" gap={3} flexShrink={0} whiteSpace="nowrap">
-      <Text fontSize={14} color="#536d79" fontFamily="poppins" whiteSpace="nowrap">
-        {formatDate(date) || 'Sin dato'}
-      </Text>
-      <Badge colorScheme={expired ? 'red' : date ? 'green' : 'gray'} fontSize={12} px={2} py={1}>
-        {expired ? 'Vencido' : date ? 'Vigente' : 'Sin dato'}
-      </Badge>
+// Una fila de vencimiento. Rojo = bloquea el ingreso; naranja = vencido
+// pero opcional; gris = sin datos que no bloquea.
+const ExpirationRow = ({ label, date, expired, missing, blocking }) => {
+  const color = blocking ? 'red' : expired ? 'orange' : missing ? 'gray' : 'green';
+  const status = expired ? 'Vencido' : missing ? 'Sin datos' : 'Vigente';
+
+  return (
+    <Flex justifyContent="space-between" alignItems="center" py={2}>
+      <Text fontSize={15} fontFamily="poppins">{label}</Text>
+      <Flex alignItems="center" gap={3} flexShrink={0} whiteSpace="nowrap">
+        {date && (
+          <Text fontSize={14} color="#536d79" fontFamily="poppins" whiteSpace="nowrap">
+            {formatDate(date)}
+          </Text>
+        )}
+        <Badge colorScheme={color} fontSize={12} px={2} py={1}>{status}</Badge>
+      </Flex>
     </Flex>
-  </Flex>
-);
+  );
+};
 
 ExpirationRow.propTypes = {
   label: PropTypes.string.isRequired,
   date: PropTypes.string,
   expired: PropTypes.bool.isRequired,
+  missing: PropTypes.bool.isRequired,
+  blocking: PropTypes.bool.isRequired,
 };
 
 // Fila de cobertura Taker (reemplaza a ART y Certificado de reincidencia
@@ -98,7 +106,7 @@ const FichaCard = ({ ficha, photo }) => {
     );
   }
 
-  const { person, expirationDetails, authorizations, hasExpired, taker } = ficha;
+  const { person, expirationDetails, authorizations, hasExpired, blocked, taker } = ficha;
   const individual = person.individual || {};
   const car = Array.isArray(individual.cars) ? individual.cars[0] : null;
 
@@ -109,7 +117,7 @@ const FichaCard = ({ ficha, photo }) => {
   const headerSubtitle = [individual.category_id, individual.company].filter(Boolean).join(' - ');
 
   return (
-    <Box bg="white" borderRadius={16} p={8} boxShadow="lg" border={hasExpired ? '3px solid #E53E3E' : '1px solid #E2E8F0'}>
+    <Box bg="white" borderRadius={16} p={8} boxShadow="lg" border={blocked ? '3px solid #E53E3E' : hasExpired ? '3px solid #DD6B20' : '1px solid #E2E8F0'}>
       <Flex gap={5} alignItems="flex-start" mb={5}>
         {photo ? (
           // Foto de la persona identificada (viene en el propio evento
@@ -180,7 +188,7 @@ const FichaCard = ({ ficha, photo }) => {
       <VStack spacing={0} align="stretch">
         {taker && <TakerRow taker={taker} />}
         {expirationDetails.map((item) => (
-          <ExpirationRow key={item.label} label={item.label} date={item.date} expired={item.expired} />
+          <ExpirationRow key={item.label} {...item} />
         ))}
       </VStack>
 
@@ -227,9 +235,13 @@ const FichaCard = ({ ficha, photo }) => {
         </Box>
       )}
 
-      {hasExpired ? (
+      {blocked ? (
         <Box mt={5} bg="#E53E3E" color="white" borderRadius={10} p={3} textAlign="center">
-          <Text fontWeight={700} fontSize={18} fontFamily="poppins">⚠ Tiene documentación o autorización vencida</Text>
+          <Text fontWeight={700} fontSize={18} fontFamily="poppins">⚠ ACCESO NO OTORGADO - Vencido o sin datos</Text>
+        </Box>
+      ) : hasExpired ? (
+        <Box mt={5} bg="#DD6B20" color="white" borderRadius={10} p={3} textAlign="center">
+          <Text fontWeight={700} fontSize={18} fontFamily="poppins">✓ INGRESO OK - Tiene documentación vencida</Text>
         </Box>
       ) : (
         <Box mt={5} bg="#16A34A" color="white" borderRadius={10} p={3} textAlign="center">
@@ -247,6 +259,7 @@ FichaCard.propTypes = {
     expirationDetails: PropTypes.array,
     authorizations: PropTypes.array,
     hasExpired: PropTypes.bool,
+    blocked: PropTypes.bool,
     taker: PropTypes.shape({
       ok: PropTypes.bool,
       message: PropTypes.string,

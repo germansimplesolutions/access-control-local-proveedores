@@ -1,8 +1,8 @@
 import { devices } from "../loadEnv.js";
 import AccessControlEvent from "../events/accessControlEvent.js";
-import { saveEntryLog, saveExitLog, sendAck } from "../sync/sync.js";
+import { saveEntryLog, saveExitLog, sendAck, sendNotify } from "../sync/sync.js";
 import { getPersonByDocument } from "../database/personDatabase.js";
-import { getExpiredFields, getAuthorizationsList } from "../database/expirations.js";
+import { getBlockingReasons, getAuthorizationsList } from "../database/expirations.js";
 import { getTakerConfig, checkCobertura, registerAcceso } from "../taker/takerClient.js";
 import requestDigest from "request-digest";
 import fs from "fs";
@@ -228,7 +228,7 @@ const respondToRemoteCheck = async (dni, deviceName, serialNo, io) => {
     const takerResult = takerConfig.enabled ? await checkCobertura(dni) : null;
     const excludeKeys = takerConfig.enabled ? TAKER_EXCLUDED_KEYS : [];
 
-    const expiredFields = getExpiredFields(person, { excludeKeys });
+    const expiredFields = getBlockingReasons(person, { excludeKeys });
 
     if (takerResult && !takerResult.ok) {
       expiredFields.unshift(takerResult.message);
@@ -236,7 +236,7 @@ const respondToRemoteCheck = async (dni, deviceName, serialNo, io) => {
 
     if (expiredFields.length > 0) {
       const info = expiredFields.join(", ");
-      console.log(`Acceso NO otorgado a ${dni}: vencido/s -> ${info}.`);
+      console.log(`Acceso NO otorgado a ${dni}: vencido/s o sin datos -> ${info}.`);
       io.sockets.emit("accessDenied", JSON.stringify({ dni, expiredFields }));
       await sendRemoteCheck(deviceName, serialNo, "failed", info);
       return;
@@ -341,6 +341,25 @@ const logAccessForAuthorizations = (objAccessControlEvent, plate, eventDateTime,
   } else {
     saveExitLog(objAccessControlEvent.id, eventDateTime, objAccessControlEvent.id_barrio);
   }
+
+  // Aviso de ingreso/egreso (endpoint notify): uno solo por evento real,
+  // con todos los lotes vigentes de la persona.
+  const individual = getPersonByDocument(objAccessControlEvent.id)?.individual || {};
+  const ufs = [...new Set(
+    (validAuthorizations || []).map((auth) => auth.uf)
+      .concat((validAuthorizations || []).length ? [] : [objAccessControlEvent.UF])
+      .filter(Boolean)
+      .map(String)
+  )];
+
+  sendNotify({
+    name: individual.name || "",
+    lastname: individual.lastname || "",
+    timestamp: (eventDateTime || "").slice(0, 16),
+    category: objAccessControlEvent.category_id || "",
+    type: objAccessControlEvent.event_type,
+    ufs,
+  }, objAccessControlEvent.id_barrio);
 
   // Taker: una sola notificacion a /acceso por evento real (nunca una por
   // cada autorizacion/lote de la persona, a diferencia del loop de
